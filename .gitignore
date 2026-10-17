@@ -1,0 +1,24 @@
+
+# Compiled object files
+*.o
+*.a
+
+# Kernel build output
+kernel.elf
+myos.iso
+
+# Debug and intermediate files
+*.elf~
+*.bin
+*.map
+*.log
+
+# Editor temporary files
+*~
+*.swp
+*.swo
+.DS_Store
+
+# Build directories
+build/
+dist/

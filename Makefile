@@ -13,7 +13,7 @@ LDFLAGS = -T linker.ld -ffreestanding -nostdlib \
           -no-pie -m32
 
 SOURCES = src/kernel.c src/console.c \
-          src/keyboard.c src/shell.c
+          src/keyboard.c src/shell.c src/panic.c
 
 OBJECTS = $(SOURCES:.c=.o) src/boot.o
 
