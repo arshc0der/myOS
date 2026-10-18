@@ -87,7 +87,7 @@ static void show_memory(void)
 {
     console_write("Memory information\n");
     console_write("------------------\n");
-/*
+
     if (boot_memory_available()) {
         console_write("Bootloader-reported memory: ");
         print_number(boot_memory_kb());
@@ -96,7 +96,7 @@ static void show_memory(void)
         console_write("Memory map not available yet.\n");
         console_write("Implement boot memory-map parsing first.\n");
     }
-*/
+
     console_write("Kernel heap: not implemented\n");
     console_write("Physical page allocator: not implemented\n");
     console_write("Virtual memory manager: not implemented\n");
@@ -116,7 +116,7 @@ static void show_about(void)
 {
     console_write("MyOS - My own operating system!\n");
     console_write("A hobby operating system written in C and x86 assembly.\n");
-    console_write("Kernel version: 0.1\n");
+    console_write("Kernel version: 1.1.1\n");
 }
 
 static void show_status(void)
@@ -153,7 +153,7 @@ static void run_command(char *s)
         show_about();
 
     } else if (equal(s, "version")) {
-        console_write("MyOS version 0.1\n");
+        console_write("MyOS version 1.1.1\n");
 
     } else if (equal(s, "clear")) {
         console_clear();
