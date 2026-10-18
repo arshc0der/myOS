@@ -1,4 +1,4 @@
-# MyOS
+# MyOS v1.0.0
 
 A tiny 32-bit x86 operating system written from scratch in C and assembly. It boots with GRUB (Multiboot), prints to the VGA text screen, reads the PS/2 keyboard, and drops you into a small interactive shell.
 
