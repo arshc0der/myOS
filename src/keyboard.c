@@ -1,16 +1,22 @@
+/*
+ * keyboard.c - PS/2 keyboard driver (polling, scancode set 1).
+ *
+ * keyboard_getchar() waits for a key and returns it:
+ *   - normal keys return their ASCII character
+ *   - arrows, Page Up/Down, Home, End, Delete return KEY_* codes (keys.h)
+ *
+ * Extra keys such as the arrows send TWO bytes: 0xE0 first, then the code.
+ * A key release sends the same code with bit 7 (0x80) set.
+ */
 
 #include <stdint.h>
+#include "keys.h"
 
 static inline uint8_t inb(uint16_t port)
 {
     uint8_t value;
 
-    __asm__ volatile (
-        "inb %1, %0"
-        : "=a"(value)
-        : "Nd"(port)
-    );
-
+    __asm__ volatile ("inb %1, %0" : "=a"(value) : "Nd"(port));
     return value;
 }
 
@@ -64,10 +70,12 @@ static const char shifted[128] = {
     [0x35]='?', [0x39]=' '
 };
 
-char keyboard_getchar(void)
+int keyboard_getchar(void)
 {
     static int left_shift = 0;
     static int right_shift = 0;
+    static int caps_lock = 0;
+    static int extended = 0;        /* last byte was the 0xE0 prefix */
 
     for (;;) {
         /* Wait until the keyboard controller has data. */
@@ -76,41 +84,65 @@ char keyboard_getchar(void)
 
         uint8_t sc = inb(0x60);
 
-        /* Set-1 left Shift press/release. */
-        if (sc == 0x2A) {
-            left_shift = 1;
+        if (sc == 0xE0) {           /* prefix for extended keys */
+            extended = 1;
             continue;
         }
 
-        if (sc == 0xAA) {
-            left_shift = 0;
+        int release = sc & 0x80;
+        uint8_t code = sc & 0x7F;
+
+        if (extended) {
+            extended = 0;
+
+            if (release)
+                continue;
+
+            switch (code) {
+            case 0x48: return KEY_UP;
+            case 0x50: return KEY_DOWN;
+            case 0x4B: return KEY_LEFT;
+            case 0x4D: return KEY_RIGHT;
+            case 0x49: return KEY_PGUP;
+            case 0x51: return KEY_PGDN;
+            case 0x47: return KEY_HOME;
+            case 0x4F: return KEY_END;
+            case 0x53: return KEY_DELETE;
+            default:   continue;    /* other extended keys: ignore */
+            }
+        }
+
+        if (code == 0x2A) {         /* left shift  */
+            left_shift = !release;
             continue;
         }
 
-        /* Set-1 right Shift press/release. */
-        if (sc == 0x36) {
-            right_shift = 1;
+        if (code == 0x36) {         /* right shift */
+            right_shift = !release;
             continue;
         }
 
-        if (sc == 0xB6) {
-            right_shift = 0;
+        if (release)
+            continue;
+
+        if (code == 0x3A) {         /* caps lock toggles on key press */
+            caps_lock = !caps_lock;
             continue;
         }
 
-        /* Ignore other key releases. */
-        if (sc & 0x80)
-            continue;
+        char c = (left_shift || right_shift) ? shifted[code]
+                                             : normal[code];
 
-        if (sc >= 128)
-            continue;
-
-        char c = (left_shift || right_shift)
-               ? shifted[sc]
-               : normal[sc];
+        /* Caps Lock flips the case of letters (Shift flips it back). */
+        if (caps_lock) {
+            if (c >= 'a' && c <= 'z')
+                c = (char)(c - 32);
+            else if (c >= 'A' && c <= 'Z')
+                c = (char)(c + 32);
+        }
 
         /* Ignore unmapped scan codes. */
         if (c != '\0')
-            return c;
+            return (unsigned char)c;
     }
 }

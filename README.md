@@ -6,29 +6,31 @@ A minimal 32-bit x86 hobby operating system written from scratch in C and assemb
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ```
-========================
-       Welcome to MyOS
-========================
+========================================
+             Welcome to MyOS
+========================================
 Type 'help' to list commands.
+PgUp/PgDn scroll the screen, Up/Down recall commands.
 
-MyOS> help
-MyOS shell commands
--------------------
-help       - list commands
-about      - about MyOS
-version    - kernel version
-clear      - clear screen
-echo TEXT  - print text
-...
+MyOS> sysinfo
+System summary
+--------------
+OS                : MyOS 1.2.0 (32-bit x86)
+CPU               : QEMU Virtual CPU version 2.5+
+Memory            : 130559 KiB (127 MiB) usable
+Bootloader        : GRUB 2.12
+PCI devices       : 5
+Virtualization    : yes (TCGTCGTCGTCG)
 ```
 
 ## Features
 
 - Multiboot-compliant boot (GRUB loads `kernel.elf`)
 - Freestanding kernel with no libc
-- VGA text-mode console (80x25) with scrolling, backspace and tab handling
-- Polling PS/2 keyboard driver (scancode set 1) with Shift support
-- Interactive shell with line editing
+- VGA text-mode console (80x25) with colors, a working hardware cursor and 275 lines of scrollback
+- PS/2 keyboard driver (scancode set 1): Shift, Caps Lock, arrow keys, Page Up/Down, Home/End
+- Interactive shell with command history (Up/Down) and backspace editing across wrapped lines
+- Hardware information: memory map from GRUB, CPU details via CPUID, PCI device list, RTC date and time
 - Kernel panic handler (`kernel_panic`) that shows an error screen and halts the CPU
 
 ## Download
@@ -36,27 +38,28 @@ echo TEXT  - print text
 Ready-to-boot ISO images and source archives are on the [Releases page](https://github.com/arshc0der/myOS/releases). Each release includes SHA-256 checksums.
 
 ```bash
-qemu-system-i386 -cdrom myos-1.1.0.iso -m 128M
+qemu-system-i386 -cdrom myos-1.2.0.iso -m 128M
 ```
 
 ## Shell commands
 
 | Command | Description |
 |---------|-------------|
-| `help` | Display available commands |
-| `about` | Display information about MyOS |
+| `help` | List available commands |
+| `about` | About MyOS |
 | `version` | Show the kernel version |
-| `clear` | Clear the screen |
+| `sysinfo` | System summary (OS, CPU, memory, bootloader, PCI devices) |
+| `meminfo` | Memory size, kernel location and the full memory map |
+| `cpuinfo` | CPU vendor, model, family/model/stepping, features, virtualization |
+| `lspci` | List PCI devices (network, storage, graphics, ...) |
+| `date` | Date and time from the RTC clock |
+| `history` | Commands typed so far |
 | `echo <text>` | Print text to the screen |
-| `meminfo` | Display memory subsystem status |
-| `cpuinfo` | Display architecture and kernel information |
-| `date` | Display clock status |
-| `whoami` | Show the current environment |
-| `history` | Display command-history status |
+| `clear` | Clear the screen and scrollback |
+| `reboot` | Restart the computer |
 | `halt` / `shutdown` | Halt the CPU |
-| `reboot` | Not implemented yet |
 
-Some commands (`meminfo`, `date`, `history`, `reboot`) are placeholders that report their unfinished features honestly.
+**Keys:** `Up`/`Down` recall previous commands, `PgUp`/`PgDn` scroll the screen, `Home`/`End` jump to the oldest/newest output.
 
 ## Project layout
 
@@ -65,9 +68,14 @@ myOS/
 ├── src/
 │   ├── boot.S        # Multiboot header, stack setup, entry point (_start)
 │   ├── kernel.c      # kernel_main: init console, start shell
-│   ├── console.c     # VGA text console (clear, putc, write, scroll)
-│   ├── keyboard.c    # PS/2 keyboard driver (getchar)
+│   ├── console.c     # VGA console: colors, cursor, scrollback
+│   ├── keyboard.c    # PS/2 keyboard driver
+│   ├── keys.h        # Special key codes (arrows, Page Up/Down, ...)
 │   ├── shell.c       # Command-line shell
+│   ├── multiboot.c   # Boot information from GRUB (memory map, bootloader)
+│   ├── cpu.c         # CPU information (CPUID)
+│   ├── pci.c         # PCI device scanning
+│   ├── rtc.c         # Real-time clock (date and time)
 │   └── panic.c       # Kernel panic handler
 ├── iso/
 │   └── boot/grub/grub.cfg   # GRUB menu entry
@@ -112,6 +120,12 @@ If `grub2-file` is unavailable, use `grub-file` instead.
 Build the bootable ISO:
 
 ```bash
+make iso            # copies kernel.elf into iso/ and runs grub(2)-mkrescue
+```
+
+Or do it by hand:
+
+```bash
 cp kernel.elf iso/boot/kernel.elf
 grub2-mkrescue -o myos.iso iso      # or: grub-mkrescue -o myos.iso iso
 ```
@@ -119,15 +133,18 @@ grub2-mkrescue -o myos.iso iso      # or: grub-mkrescue -o myos.iso iso
 ## Run
 
 ```bash
+make run            # builds the ISO and starts QEMU
+# or, by hand:
 qemu-system-i386 -cdrom myos.iso -m 128M
 ```
 
 A QEMU window opens with the MyOS welcome banner and shell prompt. Try:
 
 ```text
-help
-about
-echo Hello from MyOS!
+sysinfo
+meminfo
+cpuinfo
+lspci
 ```
 
 To boot the kernel directly, without an ISO:
@@ -150,13 +167,46 @@ qemu-system-i386 -kernel kernel.elf -m 128M
 ## Roadmap
 
 - Interrupts (IDT, PIC) and an IRQ-driven keyboard
-- Bootloader memory-map parsing and a physical page allocator
+- Physical page allocator (the memory map is already parsed)
 - Kernel heap (`malloc`)
-- Real-time clock support for `date`
-- Working `reboot`
-- Command history
 - Calling `kernel_panic` from kernel error paths
+- Left/Right arrow editing inside the command line
 - A simple filesystem
+
+## Planned architecture
+
+The roadmap below will move the kernel from a flat `src/` folder to a modular layout. The files under `arch/`, `drivers/`, `mm/`, `fs/` and `proc/` do not exist yet. This is the target structure, not the current one.
+
+```
+myOS/
+├── boot/
+├── src/
+│   ├── kernel.c
+│   ├── console.c
+│   ├── keyboard.c
+│   ├── shell.c
+│   ├── arch/i386/
+│   │   ├── gdt.c          # Global Descriptor Table
+│   │   ├── idt.c          # Interrupt Descriptor Table
+│   │   └── interrupts.S   # Interrupt/IRQ entry stubs
+│   ├── drivers/
+│   │   ├── timer.c        # PIT timer
+│   │   └── disk.c         # Disk driver
+│   ├── mm/
+│   │   ├── physical.c     # Physical page allocator
+│   │   └── heap.c         # Kernel heap
+│   ├── fs/                # Filesystem
+│   └── proc/              # Processes and scheduling
+├── linker.ld
+├── Makefile
+└── iso/boot/grub/grub.cfg
+```
+
+Create the directories with:
+
+```bash
+mkdir -p src/arch/i386 src/drivers src/mm src/fs src/proc src/lib iso/boot/grub
+```
 
 ## Contributing
 
