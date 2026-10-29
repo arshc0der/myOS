@@ -30,6 +30,7 @@
 #include "kerror.h"
 #include "multiboot.h"
 #include "log.h"
+#include "serial.h"
 
 /* ------------------------------------------------------------------ */
 /* Colours and sizes                                                   */
@@ -838,6 +839,10 @@ static void draw_taskbar(struct gfx_surface *s)
         gfx_text(s, bx + 8, y + 12, t, GFX_WHITE, GFX_TRANSPARENT, 1);
     }
 
+    if (!have_mouse)
+        gfx_text(s, 100 + nz * 138, y + 12, "No mouse: Alt+arrows move pointer, Alt+Enter clicks",
+                 GFX_RGB(150, 160, 185), GFX_TRANSPARENT, 1);
+
     uint32_t tm[6];
     char clock[24];
     rtc_read(tm);
@@ -854,8 +859,6 @@ static const char *cursor_shape[19] = {
 
 static void draw_cursor(struct gfx_surface *s)
 {
-    if (!have_mouse)
-        return;
     for (int j = 0; j < 19; j++)
         for (int i = 0; i < 12; i++) {
             char c = cursor_shape[j][i];
@@ -958,6 +961,55 @@ static int hit_window(int x, int y)
             return zorder[i];
     }
     return -1;
+}
+
+
+/* Automatic test: boot with "gui guitest" and watch the serial port. */
+static void push_key(int k, int mods)
+{
+    struct input_event ev = { .type = INPUT_KEY, .key = k, .mods = (uint8_t)mods };
+    input_push(&ev);
+}
+
+static void guitest_task(void *arg)
+{
+    (void)arg;
+    const char *cmd = "echo hi\n";
+    timer_sleep_ms(2500);
+    for (const char *c = cmd; *c; c++) {
+        push_key(*c, 0);
+        timer_sleep_ms(100);
+    }
+    struct input_event m = { .type = INPUT_MOUSE, .dx = 40, .dy = 20 };
+    input_push(&m);
+    timer_sleep_ms(1500);
+    push_key('q', MOD_ALT);
+}
+
+static void guitest_dump(void)
+{
+    char line[200];
+    if (!term_win)
+        return;
+    serial_write("GUITEST-TERM-BEGIN\n");
+    for (int r = 0; r < term_win->tg.rows; r++) {
+        int n = 0;
+        for (int c = 0; c < term_win->tg.cols && n < 190; c++) {
+            char ch = (char)tg_cell(&term_win->tg, r, c)->ch;
+            line[n++] = ch ? ch : ' ';
+        }
+        while (n > 0 && line[n - 1] == ' ')
+            n--;
+        line[n] = '\0';
+        serial_write(line);
+        serial_write("\n");
+    }
+    serial_write("GUITEST-TERM-END\n");
+    {
+        char b[64];
+        ksnprintf(b, sizeof b, "GUITEST mouse=%d,%d have_mouse=%d\n", mx, my, (int)have_mouse);
+        serial_write(b);
+    }
 }
 
 static void quit_gui(void) { running = false; }
@@ -1089,6 +1141,12 @@ static void handle_key(const struct input_event *ev)
                 win_close(focused());
             return;
         case '\t': cycle_windows(); return;
+        /* keyboard pointer: Alt+arrows move it (Shift = faster), Alt+Enter clicks */
+        case KEY_LEFT:  mx = MAX(0, mx - ((ev->mods & MOD_SHIFT) ? 64 : 16)); return;
+        case KEY_RIGHT: mx = MIN(sw - 1, mx + ((ev->mods & MOD_SHIFT) ? 64 : 16)); return;
+        case KEY_UP:    my = MAX(0, my - ((ev->mods & MOD_SHIFT) ? 64 : 16)); return;
+        case KEY_DOWN:  my = MIN(sh - 1, my + ((ev->mods & MOD_SHIFT) ? 64 : 16)); return;
+        case '\n': case ' ': mouse_click(mx, my); return;
         }
     }
     if (menu_open) {
@@ -1132,11 +1190,14 @@ void gui_run(void)
     mx = sw / 2;
     my = sh / 2;
     mbuttons = 0;
-    have_mouse = mouse_present();
+    have_mouse = mouse_present();                       /* only used for hints */
     drag_idx = -1;
 
+    serial_write("GUI: splash\n");
     gui_splash();
+    serial_write("GUI: wallpaper\n");
     build_wallpaper();
+    serial_write("GUI: wallpaper done\n");
     input_flush();
 
     console_set_backend(&gui_backend);                       /* shell output -> Terminal */
@@ -1154,6 +1215,10 @@ void gui_run(void)
         bring_to_front(win_index(term_win));
     }
 
+    if (boot_has_arg("guitest"))
+        task_create("guitest", guitest_task, NULL);
+
+    serial_write("GUI: loop\n");
     uint32_t last_sec = ~0u;
     while (running) {
         struct input_event ev;
@@ -1186,10 +1251,14 @@ void gui_run(void)
             last_sec = sec;
             redraw = true;
         }
-        if (redraw)
+        if (redraw) {
             render();
+            if (boot_has_arg("guitest")) serial_write("GUI: frame\n");
+        }
     }
 
+    if (boot_has_arg("guitest"))
+        guitest_dump();
     /* leave: restore the plain text console */
     while (nz > 0)
         win_close(&wins[zorder[nz - 1]]);

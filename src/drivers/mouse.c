@@ -78,6 +78,8 @@ bool mouse_init(void)
 {
     uint8_t cfg;
 
+    for (int i = 0; i < 64 && (inb(KBC_STATUS) & 1); i++)
+        (void)inb(KBC_DATA);                    /* drop stale bytes */
     if (!wait_write()) return false;
     outb(KBC_CMD, 0xA8);                        /* enable the aux (mouse) port */
     if (!wait_write()) return false;
@@ -91,9 +93,11 @@ bool mouse_init(void)
     if (!wait_write()) return false;
     outb(KBC_DATA, cfg);
 
-    if (!mouse_cmd(0xF6))                       /* defaults */
-        return false;
-    if (!mouse_cmd(0xF4))                       /* start streaming */
+    (void)mouse_cmd(0xFF);                      /* reset (answer may be longer) */
+    for (int i = 0; i < 64 && (inb(KBC_STATUS) & 1); i++)
+        (void)inb(KBC_DATA);
+    (void)mouse_cmd(0xF6);                      /* defaults */
+    if (!mouse_cmd(0xF4) && !mouse_cmd(0xF4))   /* start streaming */
         return false;
     idx = 0;
     irq_register(12, mouse_irq);

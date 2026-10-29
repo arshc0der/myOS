@@ -20,8 +20,8 @@
     .long MB_CHECK
     .long 0, 0, 0, 0, 0                  /* address fields (unused for ELF) */
     .long 0                              /* mode_type: 0 = linear graphics  */
-    .long 1024                           /* preferred width                 */
-    .long 768                            /* preferred height                */
+    .long 0                              /* width: 0 = no preference, use grub.cfg gfxmode */
+    .long 0                              /* height: 0 = no preference       */
     .long 32                             /* preferred bits per pixel        */
 
     .section .bss, "aw", @nobits

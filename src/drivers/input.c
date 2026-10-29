@@ -59,22 +59,14 @@ int input_wait(struct input_event *ev, uint32_t timeout_ms)
             cpu_hlt_wait();                 /* boot context: just idle */
             continue;
         }
-        uint32_t f = irq_save();
-        if (tail == head) {
-            if (timeout_ms) {
-                /* sleep until the deadline OR until an event wakes us */
-                struct task *t = task_current();
-                list_add_tail(&t->queue_node, &waitq.waiters);
-                t->wake_tick = deadline;
-                t->state = TASK_SLEEPING;
-                schedule();
-                /* we may have been woken by the timer: leave the wait list */
-                if (!list_empty(&t->queue_node))
-                    list_del(&t->queue_node);
-            } else {
-                wq_wait_locked(&waitq);
-            }
+        if (timeout_ms) {
+            /* timed wait: nap 10 ms at a time (simple and safe) */
+            timer_sleep_ms(10);
+            continue;
         }
+        uint32_t f = irq_save();
+        if (tail == head)
+            wq_wait_locked(&waitq);
         irq_restore(f);
     }
 }
