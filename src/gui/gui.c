@@ -93,6 +93,7 @@ static int mx, my;
 static uint8_t mbuttons;
 static bool have_mouse;
 static bool menu_open;
+static bool ptr_mode;            /* F2: arrow keys move the pointer */
 static bool running;
 
 static struct window *term_win;
@@ -839,8 +840,8 @@ static void draw_taskbar(struct gfx_surface *s)
         gfx_text(s, bx + 8, y + 12, t, GFX_WHITE, GFX_TRANSPARENT, 1);
     }
 
-    if (!have_mouse)
-        gfx_text(s, 100 + nz * 138, y + 12, "No mouse: Alt+arrows move pointer, Alt+Enter clicks",
+    if (!have_mouse || ptr_mode)
+        gfx_text(s, 100 + nz * 138, y + 12, ptr_mode ? "POINTER MODE: arrows move, Enter clicks, F2 or Esc exits" : "No mouse? Press F2: arrows move pointer, Enter clicks",
                  GFX_RGB(150, 160, 185), GFX_TRANSPARENT, 1);
 
     uint32_t tm[6];
@@ -1149,6 +1150,21 @@ static void handle_key(const struct input_event *ev)
         case '\n': case ' ': mouse_click(mx, my); return;
         }
     }
+    if (k == KEY_F(2)) {                                     /* toggle keyboard pointer */
+        ptr_mode = !ptr_mode;
+        return;
+    }
+    if (ptr_mode) {
+        int step = (ev->mods & MOD_SHIFT) ? 64 : 16;
+        switch (k) {
+        case KEY_LEFT:  mx = MAX(0, mx - step); return;
+        case KEY_RIGHT: mx = MIN(sw - 1, mx + step); return;
+        case KEY_UP:    my = MAX(0, my - step); return;
+        case KEY_DOWN:  my = MIN(sh - 1, my + step); return;
+        case '\n': case ' ': mouse_click(mx, my); return;
+        case 27: ptr_mode = false; return;
+        }
+    }
     if (menu_open) {
         if (k == 27)
             menu_open = false;
@@ -1185,6 +1201,7 @@ void gui_run(void)
     memset(wins, 0, sizeof wins);
     nz = 0;
     menu_open = false;
+    ptr_mode = false;
     running = true;
     term_win = NULL;
     mx = sw / 2;

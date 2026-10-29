@@ -39,7 +39,7 @@ The mouse may not work in some VMs; the desktop is fully usable with the keyboar
 
 Alt+T Terminal, Alt+F Files, Alt+I System Info, Alt+N Notepad, Alt+A About,
 Alt+Tab switch window, Alt+W close window, Alt+M start menu, Alt+Q quit to text shell.
-No mouse (UTM USB tablet is not supported): Alt+arrow keys move the pointer (add Shift for bigger steps), Alt+Enter clicks.
+No mouse (UTM USB tablet is not supported): press F2 for pointer mode (arrows move, Enter clicks, Shift = faster, F2 or Esc to leave). Alt+arrows also work.
 Notepad: Ctrl+S saves. Files: Enter opens, Backspace goes up, D deletes.
 
 ## Try the filesystems
