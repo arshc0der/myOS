@@ -1,4 +1,3 @@
-
 ENTRY(_start)
 
 SECTIONS
@@ -6,35 +5,33 @@ SECTIONS
     . = 1M;
     _kernel_start = .;
 
-    .text ALIGN(4K) :
-    {
-        KEEP(*(.multiboot))
-        *(.text*)
+    .multiboot ALIGN(4) : { KEEP(*(.multiboot)) }
+    .text   ALIGN(4096) : { *(.text .text.*) }
+    .rodata ALIGN(4096) : { *(.rodata .rodata.*) }
+
+    /* Shell commands register themselves in this table (see shell.h). */
+    .shell_cmds ALIGN(4) : {
+        __start_shell_cmds = .;
+        KEEP(*(.shell_cmds))
+        __stop_shell_cmds = .;
     }
 
-    .rodata ALIGN(4K) :
-    {
-        *(.rodata*)
+    /* Filesystem drivers register themselves here (see vfs.h). */
+    .fs_drivers ALIGN(4) : {
+        __start_fs_drivers = .;
+        KEEP(*(.fs_drivers))
+        __stop_fs_drivers = .;
     }
 
-    .data ALIGN(4K) :
-    {
-        *(.data*)
-    }
-
-    .bss ALIGN(4K) :
-    {
+    .data   ALIGN(4096) : { *(.data .data.*) }
+    .bss    ALIGN(4096) : {
+        __bss_start = .;
         *(COMMON)
-        *(.bss*)
+        *(.bss .bss.*)
+        __bss_end = .;
     }
 
+    . = ALIGN(4096);
     _kernel_end = .;
-
-    /DISCARD/ :
-    {
-        *(.comment)
-        *(.eh_frame)
-        *(.note.gnu.property)
-        *(.note.gnu.build-id)
-    }
+    /DISCARD/ : { *(.comment) *(.note*) *(.eh_frame*) }
 }

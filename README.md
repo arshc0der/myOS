@@ -1,217 +1,74 @@
-# MyOS
+# MyOS 2.0.0 "Foundation"
 
-A minimal 32-bit x86 hobby operating system written from scratch in C and assembly. It boots with GRUB (Multiboot), prints to the VGA text screen, reads the PS/2 keyboard, and drops you into an interactive shell.
-
-[![Latest release](https://img.shields.io/github/v/release/arshc0der/myOS)](https://github.com/arshc0der/myOS/releases/latest)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-
-```
-========================================
-             Welcome to MyOS
-========================================
-Type 'help' to list commands.
-PgUp/PgDn scroll the screen, Up/Down recall commands.
-
-MyOS> sysinfo
-System summary
---------------
-OS                : MyOS 1.2.0 (32-bit x86)
-CPU               : QEMU Virtual CPU version 2.5+
-Memory            : 130559 KiB (127 MiB) usable
-Bootloader        : GRUB 2.12
-PCI devices       : 5
-Virtualization    : yes (TCGTCGTCGTCG)
-```
+A 32-bit x86 hobby operating system written in C and assembly, booted with GRUB (Multiboot).
+Version 2 turns it into a platform you can write your own filesystems and schedulers on,
+and adds a graphical desktop.
 
 ## Features
 
-- Multiboot-compliant boot (GRUB loads `kernel.elf`)
-- Freestanding kernel with no libc
-- VGA text-mode console (80x25) with colors, a working hardware cursor and 275 lines of scrollback
-- PS/2 keyboard driver (scancode set 1): Shift, Caps Lock, arrow keys, Page Up/Down, Home/End
-- Interactive shell with command history (Up/Down) and backspace editing across wrapped lines
-- Hardware information: memory map from GRUB, CPU details via CPUID, PCI device list, RTC date and time
-- Kernel panic handler (`kernel_panic`) that shows an error screen and halts the CPU
+- Physical and virtual memory manager (bitmap allocator, paging, kernel heap)
+- Preemptive multitasking with pluggable scheduler policies (round robin, priority, yours)
+- Mutexes, semaphores and wait queues
+- Virtual file system with mount points, file descriptors and a working directory per task
+- Filesystems: ramfs (RAM), devfs (/dev), MyFS (on-disk, written for this project)
+- Block devices: RAM disks, ATA hard disks (PIO), MBR partitions
+- Keyboard and PS/2 mouse input
+- Framebuffer graphics (works on UEFI/Mac), text console drawn on the framebuffer
+- Graphical desktop: windows, taskbar, start menu, Terminal, Files, Notepad, System Info
+- Shell with about 60 commands, redirection (`>`), history, scrollback
+- 200 built-in self tests (`selftest`)
 
-## Download
+## Build and run
 
-Ready-to-boot ISO images and source archives are on the [Releases page](https://github.com/arshc0der/myOS/releases). Each release includes SHA-256 checksums.
+Requirements: gcc (with 32-bit support), binutils, make, grub-mkrescue + xorriso, qemu (optional).
 
-```bash
-qemu-system-i386 -cdrom myos-1.2.0.iso -m 128M
-```
+    make            # builds kernel.elf
+    make iso        # builds myos.iso
+    make run        # run in QEMU
 
-## Shell commands
+The boot menu offers: Graphical desktop, Text shell, Self test.
 
-| Command | Description |
-|---------|-------------|
-| `help` | List available commands |
-| `about` | About MyOS |
-| `version` | Show the kernel version |
-| `sysinfo` | System summary (OS, CPU, memory, bootloader, PCI devices) |
-| `meminfo` | Memory size, kernel location and the full memory map |
-| `cpuinfo` | CPU vendor, model, family/model/stepping, features, virtualization |
-| `lspci` | List PCI devices (network, storage, graphics, ...) |
-| `date` | Date and time from the RTC clock |
-| `history` | Commands typed so far |
-| `echo <text>` | Print text to the screen |
-| `clear` | Clear the screen and scrollback |
-| `reboot` | Restart the computer |
-| `halt` / `shutdown` | Halt the CPU |
+## Mac / UTM
 
-**Keys:** `Up`/`Down` recall previous commands, `PgUp`/`PgDn` scroll the screen, `Home`/`End` jump to the oldest/newest output.
+Use a UEFI VM and boot the ISO. The old error "no suitable video mode found" is fixed:
+the kernel asks GRUB for a 1024x768 framebuffer and draws its own text on it.
+For hard disk (ATA) support choose an IDE drive; otherwise use RAM disks (`ramdisk`).
+The mouse may not work in some VMs; the desktop is fully usable with the keyboard.
 
-## Project layout
+## Desktop keys
 
-```
-myOS/
-├── src/
-│   ├── boot.S        # Multiboot header, stack setup, entry point (_start)
-│   ├── kernel.c      # kernel_main: init console, start shell
-│   ├── console.c     # VGA console: colors, cursor, scrollback
-│   ├── keyboard.c    # PS/2 keyboard driver
-│   ├── keys.h        # Special key codes (arrows, Page Up/Down, ...)
-│   ├── shell.c       # Command-line shell
-│   ├── multiboot.c   # Boot information from GRUB (memory map, bootloader)
-│   ├── cpu.c         # CPU information (CPUID)
-│   ├── pci.c         # PCI device scanning
-│   ├── rtc.c         # Real-time clock (date and time)
-│   └── panic.c       # Kernel panic handler
-├── iso/
-│   └── boot/grub/grub.cfg   # GRUB menu entry
-├── linker.ld         # Linker script (kernel loads at 1 MiB)
-├── Makefile
-└── LICENSE
-```
+Alt+T Terminal, Alt+F Files, Alt+I System Info, Alt+N Notepad, Alt+A About,
+Alt+Tab switch window, Alt+W close window, Alt+M start menu, Alt+Q quit to text shell.
+Notepad: Ctrl+S saves. Files: Enter opens, Backspace goes up, D deletes.
 
-## Requirements
+## Try the filesystems
 
-- GCC with 32-bit support, and GNU Make
-- GRUB tools (`grub2-mkrescue`, or `grub-mkrescue` on Debian/Ubuntu) and `xorriso`
-- QEMU (`qemu-system-i386`) to run it; VirtualBox or VMware also work
+    lsblk                       # list disks
+    ramdisk create r1 2048      # (see `help ramdisk`)
+    mkfs myfs ram0
+    mount ram0 /mnt myfs
+    echo hello > /mnt/a.txt
+    cat /mnt/a.txt
+    df
 
-**Fedora**
+## Write your own code
 
-```bash
-sudo dnf install gcc glibc-devel.i686 make qemu-system-x86 grub2-tools grub2-tools-extra xorriso
-```
+Everything for students is in `src/user/` (templates also in `templates/`):
 
-**Debian / Ubuntu**
+| File | What |
+|------|------|
+| `user_init.c` | your boot code and custom shell commands (`hello`, `fsdemo` examples) |
+| `studentfs.c` | skeleton filesystem `hellofs`; try `mount none /h hellofs` |
+| `my_scheduler.c` | your scheduler policy; select with `sched mine` |
 
-```bash
-sudo apt install build-essential gcc-multilib grub-pc-bin xorriso mtools qemu-system-x86
-```
+See `docs/` for guides.
 
-## Build
+## Honest status
 
-```bash
-make clean
-make                  # builds kernel.elf
-```
-
-Check that GRUB recognizes the kernel as Multiboot (optional):
-
-```bash
-grub2-file --is-x86-multiboot kernel.elf && echo "Multiboot OK"
-```
-
-If `grub2-file` is unavailable, use `grub-file` instead.
-
-Build the bootable ISO:
-
-```bash
-make iso            # copies kernel.elf into iso/ and runs grub(2)-mkrescue
-```
-
-Or do it by hand:
-
-```bash
-cp kernel.elf iso/boot/kernel.elf
-grub2-mkrescue -o myos.iso iso      # or: grub-mkrescue -o myos.iso iso
-```
-
-## Run
-
-```bash
-make run            # builds the ISO and starts QEMU
-# or, by hand:
-qemu-system-i386 -cdrom myos.iso -m 128M
-```
-
-A QEMU window opens with the MyOS welcome banner and shell prompt. Try:
-
-```text
-sysinfo
-meminfo
-cpuinfo
-lspci
-```
-
-To boot the kernel directly, without an ISO:
-
-```bash
-qemu-system-i386 -kernel kernel.elf -m 128M
-```
-
-**VirtualBox / VMware:** create a 32-bit *Other/Unknown* VM with at least 64 MB of RAM and no hard disk, then attach `myos.iso` as the optical drive.
-
-**Real hardware:** write the ISO to a USB drive or CD and boot in BIOS / legacy mode. Take care to select the correct device, as writing an image can erase existing data.
-
-## How it works
-
-1. GRUB reads `grub.cfg`, loads `kernel.elf` at 1 MiB and jumps to `_start` using the Multiboot protocol.
-2. `boot.S` sets up a 16 KiB stack and calls `kernel_main`.
-3. `kernel_main` clears the screen and starts the shell.
-4. The shell prints a prompt, reads keys through the keyboard driver (polling ports `0x64` and `0x60`), and runs the command entered.
-
-## Roadmap
-
-- Interrupts (IDT, PIC) and an IRQ-driven keyboard
-- Physical page allocator (the memory map is already parsed)
-- Kernel heap (`malloc`)
-- Calling `kernel_panic` from kernel error paths
-- Left/Right arrow editing inside the command line
-- A simple filesystem
-
-## Planned architecture
-
-The roadmap below will move the kernel from a flat `src/` folder to a modular layout. The files under `arch/`, `drivers/`, `mm/`, `fs/` and `proc/` do not exist yet. This is the target structure, not the current one.
-
-```
-myOS/
-├── boot/
-├── src/
-│   ├── kernel.c
-│   ├── console.c
-│   ├── keyboard.c
-│   ├── shell.c
-│   ├── arch/i386/
-│   │   ├── gdt.c          # Global Descriptor Table
-│   │   ├── idt.c          # Interrupt Descriptor Table
-│   │   └── interrupts.S   # Interrupt/IRQ entry stubs
-│   ├── drivers/
-│   │   ├── timer.c        # PIT timer
-│   │   └── disk.c         # Disk driver
-│   ├── mm/
-│   │   ├── physical.c     # Physical page allocator
-│   │   └── heap.c         # Kernel heap
-│   ├── fs/                # Filesystem
-│   └── proc/              # Processes and scheduling
-├── linker.ld
-├── Makefile
-└── iso/boot/grub/grub.cfg
-```
-
-Create the directories with:
-
-```bash
-mkdir -p src/arch/i386 src/drivers src/mm src/fs src/proc src/lib iso/boot/grub
-```
-
-## Contributing
-
-Issues and pull requests are welcome. For larger changes, please open an issue first to discuss what you would like to change.
+Tested in the Bochs emulator: kernel, memory, scheduler, filesystems, shell, framebuffer console
+(200/200 self tests). The graphical desktop, GRUB menu and the Mac/UEFI boot were written
+but not run before release; please report bugs.
 
 ## License
 
-Released under the [MIT License](LICENSE).
+MIT, see LICENSE.

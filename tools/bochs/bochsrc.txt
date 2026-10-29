@@ -1,0 +1,12 @@
+romimage: file=BOCHS_SHARE/BIOS-bochs-latest
+vgaromimage: file=BOCHS_SHARE/VGABIOS-lgpl-latest.bin
+megs: 64
+boot: disk
+ata0: enabled=1, ioaddr1=0x1f0, ioaddr2=0x3f0, irq=14
+ata0-master: type=disk, path="disk.img", mode=flat, cylinders=20, heads=16, spt=63
+ata0-slave:  type=disk, path="data.img", mode=flat, cylinders=8, heads=16, spt=63
+com1: enabled=1, mode=file, dev=serial.log
+log: bochs.log
+logprefix: %t%e%d
+display_library: nogui
+clock: sync=none, time0=local
