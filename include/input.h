@@ -39,7 +39,7 @@ struct input_event {
     uint8_t  type;
     uint8_t  mods;          /* MOD_* (keys)                        */
     uint8_t  buttons;       /* MOUSE_* currently held (mouse)      */
-    uint8_t  pad;
+    uint8_t  pad;           /* mouse: bit 0 = absolute position (dx,dy are 0..32767) */
     int32_t  key;           /* ASCII or KEY_* (keys)               */
     int32_t  dx, dy;        /* movement since the last event (mouse) */
 };

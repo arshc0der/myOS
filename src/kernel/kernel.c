@@ -8,6 +8,7 @@
  *   4. scheduler + timer              multitasking
  */
 #include "gui.h"
+#include "usb.h"
 #include "kernel.h"
 #include "multiboot.h"
 #include "serial.h"
@@ -104,6 +105,7 @@ void kernel_main(uint32_t magic, uint32_t mbi_addr)
     keyboard_init();
     if (mouse_init())
         log_info("input", "PS/2 mouse found");
+    usb_start();                        /* USB keyboards and mice (xHCI) */
     vfs_init();                         /* root ramfs + /dev */
     ata_init();                         /* IDE disks (hda, hdb ...) */
     if (ramdisk_create("ram0", MiB(4)) == 0)

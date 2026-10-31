@@ -14,6 +14,17 @@ static uint32_t pci_read(uint32_t bus, uint32_t slot, uint32_t func, uint32_t of
     return inl(0xCFC);
 }
 
+uint32_t pci_cfg_read(uint8_t bus, uint8_t slot, uint8_t func, uint8_t off)
+{
+    return pci_read(bus, slot, func, off);
+}
+
+void pci_cfg_write(uint8_t bus, uint8_t slot, uint8_t func, uint8_t off, uint32_t v)
+{
+    outl(0xCF8, (1u << 31) | ((uint32_t)bus << 16) | ((uint32_t)slot << 11) | ((uint32_t)func << 8) | (off & 0xFC));
+    outl(0xCFC, v);
+}
+
 const char *pci_vendor_name(uint16_t id)
 {
     switch (id) {

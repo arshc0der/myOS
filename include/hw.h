@@ -18,6 +18,8 @@ struct pci_device {
     uint8_t cls, sub;
 };
 int  pci_scan(struct pci_device *out, int max); /* returns number found */
+uint32_t pci_cfg_read(uint8_t bus, uint8_t slot, uint8_t func, uint8_t off);
+void     pci_cfg_write(uint8_t bus, uint8_t slot, uint8_t func, uint8_t off, uint32_t v);
 const char *pci_vendor_name(uint16_t vendor);
 const char *pci_class_name(uint8_t cls, uint8_t sub);
 

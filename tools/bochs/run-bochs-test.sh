@@ -30,6 +30,7 @@ import os
 if not os.path.exists(w+"/data.img"): open(w+"/data.img","wb").write(bytes(8*16*63*512))
 PY
 sed "s#BOCHS_SHARE#$SHARE#" "$HERE/bochsrc.txt" > "$W/bochsrc.txt"
+[ -n "$USB" ] && echo 'usb_xhci: enabled=1, n_ports=6, port4=keyboard, port5=tablet, port6=mouse' >> "$W/bochsrc.txt"
 cd "$W"
 rm -f serial.log bochs.log disk.img.lock data.img.lock
 # stop early once the kernel reports a result

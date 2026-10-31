@@ -1312,8 +1312,13 @@ static void handle_mouse(const struct input_event *ev)
     if (ax > 6 || ax < -6) ax *= 2;
     if (ay > 6 || ay < -6) ay *= 2;
     static const int mult[3] = { 2, 3, 5 };
-    mx = MAX(0, MIN(sw - 1, mx + ax * mult[ptr_speed] / 2));
-    my = MAX(0, MIN(sh - 1, my + ay * mult[ptr_speed] / 2));
+    if (ev->pad & 1) {                                 /* tablet: absolute position 0..32767 */
+        mx = MAX(0, MIN(sw - 1, (int)((int64_t)ev->dx * sw / 32768)));
+        my = MAX(0, MIN(sh - 1, (int)((int64_t)ev->dy * sh / 32768)));
+    } else {
+        mx = MAX(0, MIN(sw - 1, mx + ax * mult[ptr_speed] / 2));
+        my = MAX(0, MIN(sh - 1, my + ay * mult[ptr_speed] / 2));
+    }
     bool left_now = ev->buttons & MOUSE_LEFT, left_before = mbuttons & MOUSE_LEFT;
 
     if (left_now && !left_before)
@@ -1413,7 +1418,7 @@ void gui_run(void)
     mx = sw / 2;
     my = sh / 2;
     mbuttons = 0;
-    have_mouse = mouse_present();                       /* only used for hints */
+    have_mouse = true;                       /* only used for hints */
     drag_idx = -1;
 
     serial_write("GUI: splash\n");
