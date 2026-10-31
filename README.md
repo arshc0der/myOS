@@ -102,26 +102,12 @@ The following list describes the subsystems present in the project source tree. 
 - Student templates for custom initialization, filesystems, and scheduling.
 - Architecture and subsystem documentation.
 
-## Screenshots and Demo
+## Screenshots
 
-The best way to document the current interface is to add screenshots captured from a working MyOS build.
-
-Suggested screenshots:
-
-- `docs/images/desktop.png` — graphical desktop.
-- `docs/images/terminal.png` — shell and command output.
-- `docs/images/sysinfo.png` — system information.
-- `docs/images/files.png` — filesystem browser.
-
-Once these images exist, embed them in this section, for example:
-
-markdown
-
-```
-![MyOS desktop](docs/images/desktop.png)
-```
-
-For now, no screenshots are embedded because the current images have not been verified.
+![MyOS graphical desktop](docs/images/desktop.png)
+![MyOS system information](docs/images/sysinfo.png)
+![MyOS terminal and command output](docs/images/terminal.png)
+![MyOS filesystem browser](docs/images/files.png)
 
 ## Getting Started
 
