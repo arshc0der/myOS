@@ -8,6 +8,18 @@ static const uint32_t vga_rgb[16] = {
     0x555555, 0x5555FF, 0x55FF55, 0x55FFFF, 0xFF5555, 0xFF55FF, 0xFFFF55, 0xFFFFFF,
 };
 
+bool tg_light_mode;       /* GUI light theme: black text on white */
+
+static uint32_t light_fg(uint8_t a)
+{
+    switch (a) {
+    case 0x0C: case 0x04: return GFX_RGB(190, 30, 30);      /* errors stay red */
+    case 0x0F: case 0x0A: case 0x02: return GFX_RGB(0, 0, 0);
+    case 0x0B: case 0x03: case 0x0E: case 0x06: return GFX_RGB(96, 96, 104);
+    default: return GFX_RGB(34, 34, 38);
+    }
+}
+
 uint32_t tg_color(uint8_t i) { return vga_rgb[i & 15]; }
 
 static struct tcell *line_ptr(struct tgrid *tg, int ring_line)
@@ -160,6 +172,10 @@ void tg_render(struct tgrid *tg, struct gfx_surface *s, int ox, int oy,
         for (int x = 0; x < tg->cols; x++) {
             const struct tcell *c = tg_cell(tg, y, x);
             uint32_t fg = tg_color(c->attr & 15), bg = tg_color(c->attr >> 4);
+            if (tg_light_mode) {
+                fg = light_fg(c->attr & 15);
+                bg = (c->attr >> 4) ? tg_color(c->attr >> 4) : GFX_RGB(255, 255, 255);
+            }
             int px = ox + x * 8, py = oy + y * cell_h;
             if (cell_h == 16)
                 gfx_char_tall(s, px, py, (char)c->ch, fg, bg);
@@ -169,7 +185,7 @@ void tg_render(struct tgrid *tg, struct gfx_surface *s, int ox, int oy,
     }
     if (tg->view == 0 && tg->row < tg->rows) {          /* cursor: underline block */
         int px = ox + tg->col * 8, py = oy + tg->row * cell_h;
-        gfx_fill_rect(s, px, py + cell_h - 3, 8, 2, GFX_RGB(220, 220, 220));
+        gfx_fill_rect(s, px, py + cell_h - 3, 8, 2, tg_light_mode ? GFX_RGB(20, 20, 22) : GFX_RGB(220, 220, 220));
         if (tg->row < f) f = tg->row;
         if (tg->row > l) l = tg->row;
     }

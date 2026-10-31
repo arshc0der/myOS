@@ -249,20 +249,15 @@ int gfx_text_width(const char *str, int scale)
 
 void gfx_draw_logo(struct gfx_surface *s, int x, int y, int size)
 {
-    /* rounded blue tile with three nested rounded squares and a centre dot */
+    /* black rounded tile, nested white/black rounded squares, centre dot */
+    uint32_t k = GFX_RGB(18, 18, 20), w = GFX_RGB(250, 250, 252);
     int r = size / 5;
-    gfx_fill_round_rect(s, x, y, size, size, r, GFX_RGB(24, 90, 220));
-    gfx_gradient_v(s, x + r / 2, y + 2, size - r, size / 3, GFX_RGB(70, 140, 250), GFX_RGB(24, 90, 220));
-    gfx_fill_round_rect(s, x, y + size / 2, size, size - size / 2, r, GFX_RGB(24, 90, 220));
-    gfx_fill_round_rect(s, x + size / 2 - size / 8, y + size / 2 - size / 8, size / 4, size / 4, 1, GFX_RGB(24, 90, 220));
-
-    int q = size / 8;
-    gfx_fill_round_rect(s, x + q, y + q, size - 2 * q, size - 2 * q, r / 2, GFX_RGB(240, 244, 252));
-    gfx_fill_round_rect(s, x + q + q / 2 + 1, y + q + q / 2 + 1, size - 2 * q - q - 2,
-                        size - 2 * q - q - 2, r / 3, GFX_RGB(30, 100, 230));
-    int q2 = q * 2 + q / 2;
-    gfx_fill_round_rect(s, x + q2, y + q2, size - 2 * q2, size - 2 * q2, r / 3, GFX_RGB(240, 244, 252));
-    int q3 = q2 + q / 2 + 1;
-    gfx_fill_round_rect(s, x + q3, y + q3, size - 2 * q3, size - 2 * q3, r / 4, GFX_RGB(30, 100, 230));
-    gfx_fill_circle(s, x + size / 2, y + size / 2, MAX(size / 14, 2), GFX_RGB(240, 244, 252));
+    gfx_fill_round_rect(s, x, y, size, size, r, k);
+    int q = size / 6;
+    gfx_fill_round_rect(s, x + q, y + q, size - 2 * q, size - 2 * q, MAX(r / 2, 1), w);
+    int q2 = q + MAX(size / 14, 1) + 1;
+    gfx_fill_round_rect(s, x + q2, y + q2, size - 2 * q2, size - 2 * q2, MAX(r / 3, 1), k);
+    int q3 = q2 + MAX(size / 14, 1) + 1;
+    gfx_fill_round_rect(s, x + q3, y + q3, size - 2 * q3, size - 2 * q3, MAX(r / 4, 1), w);
+    gfx_fill_circle(s, x + size / 2, y + size / 2, MAX(size / 14, 2), k);
 }

@@ -36,17 +36,32 @@
 /* Colours and sizes                                                   */
 /* ------------------------------------------------------------------ */
 
-#define C_BG_TOP     GFX_RGB(58, 72, 168)
-#define C_BG_BOTTOM  GFX_RGB(236, 128, 150)
-#define C_TASKBAR    GFX_RGB(28, 32, 44)
-#define C_TASKBAR_HI GFX_RGB(52, 60, 82)
-#define C_ACCENT     GFX_RGB(10, 132, 255)
-#define C_TITLE_ON   GFX_RGB(40, 100, 210)
-#define C_TITLE_OFF  GFX_RGB(86, 92, 108)
-#define C_WIN_BG     GFX_RGB(246, 247, 250)
-#define C_TEXT       GFX_RGB(28, 30, 38)
-#define C_TEXT_DIM   GFX_RGB(110, 116, 130)
-#define C_LIGHT      GFX_RGB(236, 240, 248)
+struct theme {
+    uint32_t bg_top, bg_bot, accent, accent_fg, win, text, dim, light, line, menu;
+    uint32_t title_on, title_off, tl1, tl2, tl3, tile, tile_edge, glyph;
+};
+static const struct theme th_light = {
+    GFX_RGB(252, 252, 253), GFX_RGB(200, 203, 211), GFX_RGB(28, 28, 30), GFX_RGB(255, 255, 255),
+    GFX_RGB(255, 255, 255), GFX_RGB(20, 20, 22), GFX_RGB(120, 120, 128), GFX_RGB(242, 242, 245),
+    GFX_RGB(214, 214, 220), GFX_RGB(248, 248, 250), GFX_RGB(236, 236, 239), GFX_RGB(248, 248, 250),
+    GFX_RGB(40, 40, 44), GFX_RGB(140, 140, 148), GFX_RGB(192, 192, 200),
+    GFX_RGB(255, 255, 255), GFX_RGB(170, 172, 180), GFX_RGB(24, 24, 26),
+};
+static const struct theme th_dark = {
+    GFX_RGB(52, 52, 58), GFX_RGB(8, 8, 10), GFX_RGB(240, 240, 245), GFX_RGB(20, 20, 22),
+    GFX_RGB(30, 30, 33), GFX_RGB(235, 235, 240), GFX_RGB(150, 150, 158), GFX_RGB(44, 44, 48),
+    GFX_RGB(72, 72, 78), GFX_RGB(36, 36, 40), GFX_RGB(54, 54, 58), GFX_RGB(40, 40, 44),
+    GFX_RGB(240, 240, 245), GFX_RGB(160, 160, 168), GFX_RGB(110, 110, 118),
+    GFX_RGB(52, 52, 56), GFX_RGB(100, 100, 108), GFX_RGB(245, 245, 248),
+};
+static const struct theme *th = &th_light;
+#define C_BG_TOP    (th->bg_top)
+#define C_BG_BOTTOM (th->bg_bot)
+#define C_ACCENT    (th->accent)
+#define C_WIN_BG    (th->win)
+#define C_TEXT      (th->text)
+#define C_TEXT_DIM  (th->dim)
+#define C_LIGHT     (th->light)
 
 #define TITLE_H    28
 #define MENUBAR_H  28
@@ -55,7 +70,7 @@
 #define MENU_W     220
 #define MENU_ITEM_H 26
 
-enum app_type { APP_TERMINAL, APP_FILES, APP_SYSINFO, APP_NOTEPAD, APP_ABOUT };
+enum app_type { APP_TERMINAL, APP_FILES, APP_SYSINFO, APP_NOTEPAD, APP_SETTINGS, APP_ABOUT };
 
 #define NOTE_CAP 16384
 #define FILES_MAX 96
@@ -67,6 +82,7 @@ struct window {
     int cw, ch;                     /* client size                */
     char title[40];
     struct gfx_surface *surf;       /* client area                */
+    uint32_t born;                  /* tick when opened (animation) */
 
     /* Terminal */
     struct tgrid tg;
@@ -94,6 +110,10 @@ static int mx, my;
 static uint8_t mbuttons;
 static bool have_mouse;
 static bool menu_open;
+static bool anim_on = true;       /* animations enabled */
+static bool animating;           /* something moved this frame */
+static bool dark_theme;
+static int  ptr_speed = 1;       /* 0 slow, 1 normal, 2 fast */
 static bool ptr_mode;            /* F2: arrow keys move the pointer */
 static bool running;
 
@@ -250,6 +270,7 @@ static struct window *win_create(enum app_type type, const char *title, int cw, 
     if (!w->surf)
         return NULL;
     w->used = true;
+    w->born = timer_ticks();
     w->type = type;
     w->cw = cw;
     w->ch = ch;
@@ -429,7 +450,7 @@ static void draw_files(struct window *w)
     gfx_fill_rect(s, 0, 0, w->cw, w->ch, C_WIN_BG);
     gfx_fill_rect(s, 0, 0, w->cw, 22, C_LIGHT);
     gfx_text(s, 8, 7, w->path, C_TEXT, GFX_TRANSPARENT, 1);
-    gfx_hline(s, 0, 22, w->cw, GFX_RGB(200, 204, 214));
+    gfx_hline(s, 0, 22, w->cw, th->line);
     int rows = files_rows(w);
     for (int r = 0; r < rows && w->top + r < w->nent; r++) {
         const struct dirent *e = &w->ent[w->top + r];
@@ -437,15 +458,19 @@ static void draw_files(struct window *w)
         bool sel = w->top + r == w->sel;
         if (sel)
             gfx_fill_rect(s, 2, y - 2, w->cw - 4, 16, C_ACCENT);
-        uint32_t fg = sel ? GFX_WHITE : (e->type == VFS_DIR ? GFX_RGB(20, 80, 190) : C_TEXT);
-        gfx_fill_rect(s, 8, y + 1, 10, 8, e->type == VFS_DIR ? GFX_RGB(240, 190, 60) :
-                      (e->type == VFS_FILE ? GFX_RGB(150, 170, 200) : GFX_RGB(200, 120, 90)));
+        uint32_t fg = sel ? th->accent_fg : C_TEXT;
+        if (e->type == VFS_DIR) {                       /* little folder */
+            gfx_fill_rect(s, 8, y, 5, 2, sel ? th->accent_fg : C_TEXT);
+            gfx_fill_rect(s, 8, y + 2, 12, 8, sel ? th->accent_fg : C_TEXT);
+        } else {
+            gfx_rect(s, 10, y, 9, 11, sel ? th->accent_fg : C_TEXT_DIM);
+        }
         gfx_text(s, 24, y + 1, e->name, fg, GFX_TRANSPARENT, 1);
         if (e->type == VFS_FILE || e->type == VFS_BLOCK) {
             char sz[16];
             ksnprintf(sz, sizeof sz, "%u", e->size);
             gfx_text(s, w->cw - 12 - gfx_text_width(sz, 1), y + 1, sz,
-                     sel ? GFX_WHITE : C_TEXT_DIM, GFX_TRANSPARENT, 1);
+                     sel ? th->accent_fg : C_TEXT_DIM, GFX_TRANSPARENT, 1);
         }
     }
     if (w->nent == 0)
@@ -601,7 +626,7 @@ static void draw_notepad(struct window *w)
     int cols = (w->cw - 8) / 8;
     int line, col;
 
-    gfx_fill_rect(s, 0, 0, w->cw, w->ch, GFX_WHITE);
+    gfx_fill_rect(s, 0, 0, w->cw, w->ch, th->win);
     note_cursor_pos(w, &line, &col);
     int st = note_line_start(w, w->top_line);
     for (int r = 0; r < rows && st <= w->len; r++) {
@@ -622,7 +647,7 @@ static void draw_notepad(struct window *w)
 
 static void bar(struct gfx_surface *s, int x, int y, int w, int pct, uint32_t col)
 {
-    gfx_fill_rect(s, x, y, w, 10, GFX_RGB(215, 220, 230));
+    gfx_fill_rect(s, x, y, w, 10, th->line);
     gfx_fill_rect(s, x, y, w * pct / 100, 10, col);
 }
 
@@ -680,7 +705,7 @@ static void draw_sysinfo(struct window *w)
               h.total_bytes / 1024, h.alloc_count);
     gfx_text(s, 12, y, line, C_TEXT, GFX_TRANSPARENT, 1);
     bar(s, 12, y + 12, w->cw - 24, h.total_bytes ? (int)(h.used_bytes * 100ull / h.total_bytes) : 0,
-        GFX_RGB(60, 170, 110));
+        th->dim);
     y += 36;
 
     gfx_text(s, 12, y, "Tasks:", C_TEXT, GFX_TRANSPARENT, 1);
@@ -706,18 +731,22 @@ static void draw_about(struct window *w)
     gfx_text(s, 20, 190, "github.com/arshc0der/myOS", C_ACCENT, GFX_TRANSPARENT, 1);
 }
 
+static void dock_note_launch(enum app_type t);
+static void draw_settings(struct window *w);
 static struct window *open_app(enum app_type t)
 {
     for (int i = 0; i < MAX_WINDOWS; i++)             /* single instance apps */
-        if (wins[i].used && wins[i].type == t && (t == APP_SYSINFO || t == APP_ABOUT || t == APP_FILES)) {
+        if (wins[i].used && wins[i].type == t && (t == APP_SYSINFO || t == APP_ABOUT || t == APP_FILES || t == APP_SETTINGS)) {
             bring_to_front(i);
             return &wins[i];
         }
+    dock_note_launch(t);
     switch (t) {
     case APP_TERMINAL: return open_terminal();
     case APP_FILES:    return open_files();
     case APP_SYSINFO:  return win_create(APP_SYSINFO, "System Info", 460, 330);
     case APP_NOTEPAD:  return open_notepad_empty();
+    case APP_SETTINGS: return win_create(APP_SETTINGS, "Settings", 470, 330);
     case APP_ABOUT:    return win_create(APP_ABOUT, "About MyOS", 340, 230);
     }
     return NULL;
@@ -730,6 +759,7 @@ static void draw_window_contents(struct window *w)
     case APP_FILES:    draw_files(w); break;
     case APP_SYSINFO:  draw_sysinfo(w); break;
     case APP_NOTEPAD:  draw_notepad(w); break;
+    case APP_SETTINGS: draw_settings(w); break;
     case APP_ABOUT:    draw_about(w); break;
     }
 }
@@ -738,18 +768,27 @@ static void draw_window_contents(struct window *w)
 /* Desktop drawing                                                     */
 /* ------------------------------------------------------------------ */
 
-struct icon { const char *label; char glyph; enum app_type app; uint32_t color, color2; };
+struct icon { const char *label; enum app_type app; };
 
 static const struct icon icons[] = {
-    { "Terminal", '>', APP_TERMINAL, GFX_RGB(70, 74, 86),   GFX_RGB(20, 22, 28) },
-    { "Files",    'F', APP_FILES,    GFX_RGB(90, 190, 250), GFX_RGB(20, 120, 230) },
-    { "Info",     'i', APP_SYSINFO,  GFX_RGB(120, 220, 140), GFX_RGB(30, 160, 90) },
-    { "Notepad",  'N', APP_NOTEPAD,  GFX_RGB(255, 220, 90), GFX_RGB(240, 160, 30) },
-    { "About",    '?', APP_ABOUT,    GFX_RGB(210, 140, 250), GFX_RGB(140, 70, 220) },
+    { "Terminal", APP_TERMINAL }, { "Files", APP_FILES }, { "System Info", APP_SYSINFO },
+    { "Notepad", APP_NOTEPAD },   { "Settings", APP_SETTINGS }, { "About", APP_ABOUT },
 };
-#define ICON_N 5
+#define ICON_N 6
 #define DOCK_ICON 52
 #define DOCK_GAP 14
+
+static int dock_sc[ICON_N];                 /* hover zoom, 0..8 pixels */
+static uint32_t dock_bounce[ICON_N];        /* tick of last launch (0 = none) */
+
+static void dock_note_launch(enum app_type t)
+{
+    if (!anim_on)
+        return;
+    for (int i = 0; i < ICON_N; i++)
+        if (icons[i].app == t)
+            dock_bounce[i] = timer_ticks() | 1;
+}
 
 static void dock_rect(int *x, int *y, int *w, int *h)
 {
@@ -774,28 +813,94 @@ static bool app_running(enum app_type t)
     return false;
 }
 
+/* Black and white application icons, drawn with shapes (no bitmaps). */
+static void draw_app_icon(struct gfx_surface *s, enum app_type app, int x, int y, int sz)
+{
+#define P(f) ((sz * (f)) / 100)
+    uint32_t tile = th->tile, g = th->glyph, edge = th->tile_edge;
+
+    if (app == APP_TERMINAL) {
+        tile = GFX_RGB(16, 16, 18);
+        g = GFX_RGB(248, 248, 250);
+        edge = dark_theme ? GFX_RGB(110, 110, 118) : tile;
+    }
+    gfx_fill_round_rect(s, x - 1, y - 1, sz + 2, sz + 2, P(24), edge);
+    gfx_fill_round_rect(s, x, y, sz, sz, P(23), tile);
+    switch (app) {
+    case APP_TERMINAL:
+        for (int t = 0; t < 2; t++) {
+            gfx_line(s, x + P(26), y + P(32) + t, x + P(44), y + P(50) + t, g);
+            gfx_line(s, x + P(44), y + P(50) + t, x + P(26), y + P(68) + t, g);
+        }
+        gfx_fill_rect(s, x + P(50), y + P(66), P(24), MAX(P(6), 2), g);
+        break;
+    case APP_FILES:
+        gfx_fill_round_rect(s, x + P(20), y + P(26), P(26), P(14), P(4), g);
+        gfx_fill_round_rect(s, x + P(18), y + P(34), P(64), P(40), P(8), g);
+        gfx_fill_rect(s, x + P(18), y + P(46), P(64), MAX(P(3), 1), tile);
+        break;
+    case APP_SYSINFO:
+        gfx_fill_circle(s, x + sz / 2, y + sz / 2, P(32), g);
+        gfx_fill_circle(s, x + sz / 2, y + P(34), MAX(P(5), 2), tile);
+        gfx_fill_round_rect(s, x + P(45), y + P(44), MAX(P(10), 3), P(24), 2, tile);
+        break;
+    case APP_NOTEPAD:
+        gfx_fill_round_rect(s, x + P(26), y + P(16), P(48), P(68), P(6), g);
+        for (int i = 0; i < 4; i++)
+            gfx_fill_rect(s, x + P(33), y + P(30) + i * P(13), P(34), MAX(P(4), 2), tile);
+        break;
+    case APP_SETTINGS: {
+        static const int d[8][2] = { {10, 0}, {7, 7}, {0, 10}, {-7, 7}, {-10, 0}, {-7, -7}, {0, -10}, {7, -7} };
+        int cx = x + sz / 2, cy = y + sz / 2;
+        for (int i = 0; i < 8; i++)
+            gfx_fill_circle(s, cx + d[i][0] * P(34) / 10, cy + d[i][1] * P(34) / 10, MAX(P(7), 2), g);
+        gfx_fill_circle(s, cx, cy, P(27), g);
+        gfx_fill_circle(s, cx, cy, P(11), tile);
+        break;
+    }
+    case APP_ABOUT:
+        gfx_draw_logo(s, x + P(17), y + P(17), P(66));
+        break;
+    }
+#undef P
+}
+
 static void draw_dock(struct gfx_surface *s)
 {
     int x, y, w, h;
+    uint32_t now = timer_ticks();
 
     dock_rect(&x, &y, &w, &h);
-    gfx_fill_rect_alpha(s, x, y, w, h, GFX_RGB(255, 255, 255), 70);
-    gfx_fill_round_rect(s, x, y, w, h, 18, gfx_blend(gfx_get_pixel(s, x + w / 2, y + 2), GFX_RGB(255, 255, 255), 90));
+    gfx_fill_round_rect(s, x - 1, y - 1, w + 2, h + 2, 19, th->line);
+    gfx_fill_round_rect(s, x, y, w, h, 18, gfx_blend(gfx_get_pixel(s, x + w / 2, y + 2), th->menu, 215));
     for (int i = 0; i < ICON_N; i++) {
         int ix = dock_icon_x(i);
-        bool hot = mx >= ix - 4 && mx < ix + DOCK_ICON + 4 && my >= y && my < y + h;
-        int sz = hot ? 60 : DOCK_ICON;
-        int dx = ix - (sz - DOCK_ICON) / 2, dy = y + 7 - (hot ? 8 : 0);
-        gfx_fill_round_rect(s, dx, dy, sz, sz, 13, icons[i].color2);
-        gfx_fill_round_rect(s, dx, dy, sz, sz * 6 / 10, 13, icons[i].color);
-        gfx_char(s, dx + sz / 2 - 8, dy + sz / 2 - 8, icons[i].glyph, GFX_WHITE, GFX_TRANSPARENT, 2);
+        bool hot = mx >= ix - 4 && mx < ix + DOCK_ICON + 4 && my >= y - 6 && my < y + h;
+        int target = hot ? 8 : 0;
+        if (!anim_on)
+            dock_sc[i] = target;
+        else if (dock_sc[i] != target) {
+            dock_sc[i] += dock_sc[i] < target ? 2 : -2;
+            animating = true;
+        }
+        int sz = DOCK_ICON + dock_sc[i];
+        int dx = ix - (sz - DOCK_ICON) / 2, dy = y + 7 - dock_sc[i];
+        if (dock_bounce[i]) {
+            int dt = (int)((now - dock_bounce[i]) / 2);
+            if (dt < 16) {
+                dy -= dt < 8 ? dt * 2 : (16 - dt) * 2;
+                animating = true;
+            } else
+                dock_bounce[i] = 0;
+        }
+        draw_app_icon(s, icons[i].app, dx, dy, sz);
         if (app_running(icons[i].app))
-            gfx_fill_circle(s, ix + DOCK_ICON / 2, y + h - 6, 2, GFX_RGB(40, 40, 50));
-        if (hot) {
+            gfx_fill_circle(s, ix + DOCK_ICON / 2, y + h - 6, 2, th->glyph);
+        if (hot && dock_sc[i] > 3) {
             int lw = gfx_text_width(icons[i].label, 1) + 16;
             int lx = ix + DOCK_ICON / 2 - lw / 2, ly = y - 34;
-            gfx_fill_round_rect(s, lx, ly, lw, 20, 6, GFX_RGB(60, 60, 68));
-            gfx_text(s, lx + 8, ly + 6, icons[i].label, GFX_WHITE, GFX_TRANSPARENT, 1);
+            gfx_fill_round_rect(s, lx, ly, lw, 20, 6, th->accent);
+            gfx_text(s, lx + 8, ly + 6, icons[i].label, th->accent_fg, GFX_TRANSPARENT, 1);
         }
     }
 }
@@ -803,31 +908,39 @@ static void draw_dock(struct gfx_surface *s)
 static void draw_window(struct gfx_surface *s, struct window *w, bool active)
 {
     int ow = outer_w(w), oh = outer_h(w);
+    int savey = w->y;
 
+    if (anim_on) {                                   /* open animation: slide up, 200 ms */
+        int t = (int)(timer_ticks() - w->born);
+        if (t < 20) {
+            int rem = 20 - t;
+            w->y += 30 * rem * rem / 400;
+            animating = true;
+        }
+    }
     for (int k = 3; k >= 0; k--)                                      /* soft shadow */
         gfx_fill_round_rect(s, w->x - k * 3, w->y + 6 - k, ow + k * 6, oh + k * 4, 14,
                             gfx_blend(gfx_get_pixel(s, w->x + ow / 2, MIN(sh - 1, w->y + oh + 4)), GFX_BLACK, 22));
+    gfx_fill_round_rect(s, w->x - 1, w->y - 1, ow + 2, oh + 2, 11, th->line);
     gfx_fill_round_rect(s, w->x, w->y, ow, oh, 10, C_WIN_BG);
-    uint32_t tcol = active ? GFX_RGB(232, 232, 236) : GFX_RGB(244, 244, 247);
-    gfx_fill_round_rect(s, w->x, w->y, ow, TITLE_H + 12, 10, tcol);
+    gfx_fill_round_rect(s, w->x, w->y, ow, TITLE_H + 12, 10, active ? th->title_on : th->title_off);
     gfx_fill_rect(s, w->x, w->y + TITLE_H, ow, 12, C_WIN_BG);
-    gfx_hline(s, w->x, w->y + TITLE_H - 1, ow, GFX_RGB(205, 205, 210));
-    /* traffic lights */
-    gfx_fill_circle(s, w->x + 16, w->y + 14, 6, active ? GFX_RGB(255, 95, 87) : GFX_RGB(200, 200, 204));
-    gfx_fill_circle(s, w->x + 36, w->y + 14, 6, active ? GFX_RGB(254, 188, 46) : GFX_RGB(200, 200, 204));
-    gfx_fill_circle(s, w->x + 56, w->y + 14, 6, active ? GFX_RGB(40, 200, 64) : GFX_RGB(200, 200, 204));
+    gfx_hline(s, w->x, w->y + TITLE_H - 1, ow, th->line);
+    gfx_fill_circle(s, w->x + 16, w->y + 14, 6, active ? th->tl1 : th->line);
+    gfx_fill_circle(s, w->x + 36, w->y + 14, 6, active ? th->tl2 : th->line);
+    gfx_fill_circle(s, w->x + 56, w->y + 14, 6, active ? th->tl3 : th->line);
     int tw = gfx_text_width(w->title, 1);
-    gfx_text(s, w->x + (ow - tw) / 2, w->y + 10, w->title,
-             active ? GFX_RGB(40, 40, 46) : GFX_RGB(150, 150, 158), GFX_TRANSPARENT, 1);
+    gfx_text(s, w->x + (ow - tw) / 2, w->y + 10, w->title, active ? C_TEXT : C_TEXT_DIM, GFX_TRANSPARENT, 1);
     draw_window_contents(w);
     gfx_blit(s, w->x + 1, w->y + TITLE_H, w->surf, 0, 0, w->cw, w->ch);
+    w->y = savey;
 }
 
 static const char *menu_labels[] = {
-    "Terminal", "Files", "System Info", "Notepad", "About MyOS",
+    "Terminal", "Files", "System Info", "Notepad", "Settings", "About MyOS",
     "Exit to text console", "Shut down", "Restart",
 };
-#define MENU_COUNT 8
+#define MENU_COUNT 9
 
 static void menu_rect(int *x, int *y, int *w, int *h)
 {
@@ -843,36 +956,107 @@ static void draw_menu(struct gfx_surface *s)
 
     menu_rect(&x, &y, &w, &h);
     gfx_fill_round_rect(s, x + 2, y + 4, w, h, 10, gfx_blend(gfx_get_pixel(s, x + 4, y + h + 6), GFX_BLACK, 40));
-    gfx_fill_round_rect(s, x, y, w, h, 10, GFX_RGB(244, 244, 248));
+    gfx_fill_round_rect(s, x - 1, y - 1, w + 2, h + 2, 11, th->line);
+    gfx_fill_round_rect(s, x, y, w, h, 10, th->menu);
     for (int i = 0; i < MENU_COUNT; i++) {
         int iy = y + 5 + i * MENU_ITEM_H;
         bool hot = mx >= x && mx < x + w && my >= iy && my < iy + MENU_ITEM_H;
         if (hot)
             gfx_fill_round_rect(s, x + 5, iy, w - 10, MENU_ITEM_H - 2, 6, C_ACCENT);
-        gfx_text(s, x + 16, iy + 9, menu_labels[i], hot ? GFX_WHITE : C_TEXT, GFX_TRANSPARENT, 1);
-        if (i == 4)
-            gfx_hline(s, x + 12, iy + MENU_ITEM_H - 1, w - 24, GFX_RGB(210, 210, 216));
+        gfx_text(s, x + 16, iy + 9, menu_labels[i], hot ? th->accent_fg : C_TEXT, GFX_TRANSPARENT, 1);
+        if (i == 5)
+            gfx_hline(s, x + 12, iy + MENU_ITEM_H - 1, w - 24, th->line);
     }
 }
 
 static void draw_menubar(struct gfx_surface *s)
 {
-    gfx_fill_rect_alpha(s, 0, 0, sw, MENUBAR_H, GFX_RGB(246, 246, 250), 215);
-    gfx_hline(s, 0, MENUBAR_H - 1, sw, GFX_RGB(200, 200, 208));
+    gfx_fill_rect_alpha(s, 0, 0, sw, MENUBAR_H, th->menu, 225);
+    gfx_hline(s, 0, MENUBAR_H - 1, sw, th->line);
     if (menu_open)
-        gfx_fill_round_rect(s, 4, 3, 36, MENUBAR_H - 6, 6, C_ACCENT);
+        gfx_fill_round_rect(s, 4, 3, 36, MENUBAR_H - 6, 6, th->line);
     gfx_draw_logo(s, 14, 6, 16);
     struct window *f = focused();
     gfx_text(s, 52, 10, f ? f->title : "Desktop", C_TEXT, GFX_TRANSPARENT, 1);
-    if (!have_mouse || ptr_mode)
-        gfx_text(s, sw / 2 - 150, 10, ptr_mode ? "POINTER MODE: arrows move, Enter clicks, F2/Esc exits"
-                 : "No mouse? Press F2: arrows move pointer", GFX_RGB(150, 60, 60), GFX_TRANSPARENT, 1);
-
+    if (ptr_mode)
+        gfx_text(s, sw / 2 - 150, 10, "POINTER MODE: arrows move, Enter clicks, F2/Esc exits",
+                 C_TEXT_DIM, GFX_TRANSPARENT, 1);
     uint32_t tm[6];
     char clock[24];
     rtc_read(tm);
     ksnprintf(clock, sizeof clock, "%02u:%02u:%02u", tm[3], tm[4], tm[5]);
     gfx_text(s, sw - gfx_text_width(clock, 1) - 14, 10, clock, C_TEXT, GFX_TRANSPARENT, 1);
+}
+
+/* ---- Settings ---- */
+
+static void build_wallpaper(void);
+
+static void set_theme(bool dark)
+{
+    dark_theme = dark;
+    th = dark ? &th_dark : &th_light;
+    tg_light_mode = !dark;
+    if (term_win)
+        tg_mark_all_dirty(&term_win->tg);
+    gfx_surface_free(wallpaper);
+    wallpaper = NULL;
+    build_wallpaper();
+}
+
+static void setting_button(struct gfx_surface *s, int x, int y, int w, const char *label, bool on)
+{
+    gfx_fill_round_rect(s, x, y, w, 28, 7, on ? th->accent : th->light);
+    if (!on)
+        gfx_rect(s, x, y, w, 28, th->line);
+    gfx_text(s, x + (w - gfx_text_width(label, 1)) / 2, y + 10, label, on ? th->accent_fg : C_TEXT,
+             GFX_TRANSPARENT, 1);
+}
+
+static void draw_settings(struct window *w)
+{
+    struct gfx_surface *s = w->surf;
+    char line[96];
+
+    gfx_fill_rect(s, 0, 0, w->cw, w->ch, C_WIN_BG);
+    gfx_text(s, 20, 14, "Appearance", C_TEXT, GFX_TRANSPARENT, 1);
+    setting_button(s, 20, 32, 100, "Light", !dark_theme);
+    setting_button(s, 128, 32, 100, "Dark", dark_theme);
+    gfx_text(s, 20, 80, "Animations", C_TEXT, GFX_TRANSPARENT, 1);
+    setting_button(s, 20, 98, 100, "On", anim_on);
+    setting_button(s, 128, 98, 100, "Off", !anim_on);
+    gfx_text(s, 20, 146, "Pointer speed", C_TEXT, GFX_TRANSPARENT, 1);
+    setting_button(s, 20, 164, 100, "Slow", ptr_speed == 0);
+    setting_button(s, 128, 164, 100, "Normal", ptr_speed == 1);
+    setting_button(s, 236, 164, 100, "Fast", ptr_speed == 2);
+    gfx_hline(s, 20, 210, w->cw - 40, th->line);
+    ksnprintf(line, sizeof line, "Display: %dx%d pixels", sw, sh);
+    gfx_text(s, 20, 222, line, C_TEXT, GFX_TRANSPARENT, 1);
+    gfx_text(s, 20, 240, "To change the resolution, restart and choose", C_TEXT_DIM, GFX_TRANSPARENT, 1);
+    gfx_text(s, 20, 254, "\"Display resolution\" in the boot menu.", C_TEXT_DIM, GFX_TRANSPARENT, 1);
+    gfx_text(s, 20, 280, "Keys: T theme   A animations   1 2 3 pointer speed", C_TEXT_DIM, GFX_TRANSPARENT, 1);
+}
+
+static void settings_click(int cx, int cy)
+{
+    if (cy >= 32 && cy < 60) {
+        if (cx >= 20 && cx < 120) set_theme(false);
+        else if (cx >= 128 && cx < 228) set_theme(true);
+    } else if (cy >= 98 && cy < 126) {
+        if (cx >= 20 && cx < 120) anim_on = true;
+        else if (cx >= 128 && cx < 228) anim_on = false;
+    } else if (cy >= 164 && cy < 192) {
+        if (cx >= 20 && cx < 120) ptr_speed = 0;
+        else if (cx >= 128 && cx < 228) ptr_speed = 1;
+        else if (cx >= 236 && cx < 336) ptr_speed = 2;
+    }
+}
+
+static void settings_key(int k)
+{
+    if (k == 't' || k == 'T') set_theme(!dark_theme);
+    else if (k == 'a' || k == 'A') anim_on = !anim_on;
+    else if (k >= '1' && k <= '3') ptr_speed = k - '1';
 }
 
 static const char *cursor_shape[19] = {
@@ -900,28 +1084,17 @@ static void build_wallpaper(void)
     if (!wallpaper)
         return;
     gfx_gradient_v(wallpaper, 0, 0, sw, sh, C_BG_TOP, C_BG_BOTTOM);
-    /* soft watermark logo */
-    int size = MIN(sw, sh) / 3;
-    struct gfx_surface *tmp = gfx_surface_create(size, size);
-    if (tmp) {
-        for (int i = 0; i < size * size; i++)
-            tmp->px[i] = 0xFF000000u;                  /* marker: untouched */
-        gfx_draw_logo(tmp, 0, 0, size);
-        for (int y = 0; y < size; y++)
-            for (int x = 0; x < size; x++) {
-                uint32_t p = tmp->px[y * size + x];
-                if (p == 0xFF000000u)
-                    continue;
-                int wx = sw - size - 40 + x, wy = (sh - TASKBAR_H - size) / 2 + y;
-                gfx_pixel(wallpaper, wx, wy, gfx_blend(gfx_get_pixel(wallpaper, wx, wy), p, 40));
-            }
-        gfx_surface_free(tmp);
-    }
+    /* big soft circles for depth */
+    uint32_t c1 = gfx_blend(C_BG_TOP, C_BG_BOTTOM, 90), c2 = gfx_blend(C_BG_TOP, C_BG_BOTTOM, 150);
+    gfx_fill_circle(wallpaper, sw * 78 / 100, sh * 30 / 100, sh / 3, c1);
+    gfx_fill_circle(wallpaper, sw * 22 / 100, sh * 80 / 100, sh / 4, c2);
 }
 
 static void render(void)
 {
     struct gfx_surface *s = gfx_screen();
+
+    animating = false;
 
     if (wallpaper)
         gfx_blit(s, 0, 0, wallpaper, 0, 0, sw, sh);
@@ -947,24 +1120,26 @@ void gui_splash(void)
         return;
     struct gfx_surface *s = gfx_screen();
     int w = gfx_width(), h = gfx_height();
-    int size = MIN(w, h) / 4;
-    int lx = (w - size) / 2, ly = h / 2 - size / 2 - 30;
+    int size = MIN(w, h) / 5;
+    int ly = h / 2 - size / 2 - 30;
     static const char *steps[] = {
         "Starting the memory manager...", "Mounting file systems...",
         "Loading input drivers...", "Starting the desktop...",
     };
 
     for (int step = 0; step <= 4; step++) {
-        gfx_gradient_v(s, 0, 0, w, h, GFX_RGB(8, 14, 34), GFX_RGB(20, 52, 110));
-        gfx_draw_logo(s, lx, ly, size);
+        gfx_gradient_v(s, 0, 0, w, h, GFX_RGB(255, 255, 255), GFX_RGB(214, 217, 224));
+        /* the logo grows in during the first steps */
+        int sz = size * (step == 0 ? 80 : 100) / 100;
+        gfx_draw_logo(s, (w - sz) / 2, ly + (size - sz) / 2, sz);
         int tw = gfx_text_width("MyOS", 4);
-        gfx_text(s, (w - tw) / 2, ly + size + 22, "MyOS", GFX_WHITE, GFX_TRANSPARENT, 4);
+        gfx_text(s, (w - tw) / 2, ly + size + 22, "MyOS", GFX_RGB(20, 20, 22), GFX_TRANSPARENT, 4);
         int bw = size * 2, bx = (w - bw) / 2, by = ly + size + 80;
-        gfx_fill_round_rect(s, bx, by, bw, 8, 4, GFX_RGB(40, 52, 84));
+        gfx_fill_round_rect(s, bx, by, bw, 6, 3, GFX_RGB(214, 214, 220));
         if (step > 0)
-            gfx_fill_round_rect(s, bx, by, bw * step / 4, 8, 4, GFX_RGB(80, 160, 255));
+            gfx_fill_round_rect(s, bx, by, bw * step / 4, 6, 3, GFX_RGB(24, 24, 26));
         const char *msg = step < 4 ? steps[step] : "Welcome";
-        gfx_text(s, (w - gfx_text_width(msg, 1)) / 2, by + 20, msg, GFX_RGB(170, 190, 230), GFX_TRANSPARENT, 1);
+        gfx_text(s, (w - gfx_text_width(msg, 1)) / 2, by + 20, msg, GFX_RGB(110, 110, 118), GFX_TRANSPARENT, 1);
         gfx_flush_all();
         timer_sleep_ms(step < 4 ? 260 : 350);
     }
@@ -1047,10 +1222,11 @@ static void menu_action(int i)
     case 1: open_app(APP_FILES); break;
     case 2: open_app(APP_SYSINFO); break;
     case 3: open_app(APP_NOTEPAD); break;
-    case 4: open_app(APP_ABOUT); break;
-    case 5: quit_gui(); break;
-    case 6: system_poweroff();
-    case 7: system_reboot();
+    case 4: open_app(APP_SETTINGS); break;
+    case 5: open_app(APP_ABOUT); break;
+    case 6: quit_gui(); break;
+    case 7: system_poweroff();
+    case 8: system_reboot();
     }
 }
 
@@ -1113,7 +1289,9 @@ static void mouse_click(int x, int y)
         return;
     }
     /* click inside the client area */
-    int cy = ly - TITLE_H;
+    int cx = lx - 1, cy = ly - TITLE_H;
+    if (w->type == APP_SETTINGS)
+        settings_click(cx, cy);
     if (w->type == APP_FILES && cy >= 26) {
         int row = (cy - 26) / 16 + w->top;
         if (row < w->nent) {
@@ -1133,8 +1311,9 @@ static void handle_mouse(const struct input_event *ev)
     int ax = ev->dx, ay = ev->dy;
     if (ax > 6 || ax < -6) ax *= 2;
     if (ay > 6 || ay < -6) ay *= 2;
-    mx = MAX(0, MIN(sw - 1, mx + ax * 3 / 2));
-    my = MAX(0, MIN(sh - 1, my + ay * 3 / 2));
+    static const int mult[3] = { 2, 3, 5 };
+    mx = MAX(0, MIN(sw - 1, mx + ax * mult[ptr_speed] / 2));
+    my = MAX(0, MIN(sh - 1, my + ay * mult[ptr_speed] / 2));
     bool left_now = ev->buttons & MOUSE_LEFT, left_before = mbuttons & MOUSE_LEFT;
 
     if (left_now && !left_before)
@@ -1159,6 +1338,7 @@ static void handle_key(const struct input_event *ev)
         case 'i': case 'I': open_app(APP_SYSINFO); return;
         case 'n': case 'N': open_app(APP_NOTEPAD); return;
         case 'a': case 'A': open_app(APP_ABOUT); return;
+        case 's': case 'S': open_app(APP_SETTINGS); return;
         case 'm': case 'M': menu_open = !menu_open; return;
         case 'q': case 'Q': quit_gui(); return;
         case 'w': case 'W': case KEY_F(4):
@@ -1201,6 +1381,7 @@ static void handle_key(const struct input_event *ev)
     case APP_TERMINAL: kq_push(k); break;
     case APP_FILES:    files_key(w, k); break;
     case APP_NOTEPAD:  note_key(w, k, ev->mods); break;
+    case APP_SETTINGS: settings_key(k); break;
     default: break;
     }
 }
@@ -1226,6 +1407,7 @@ void gui_run(void)
     nz = 0;
     menu_open = false;
     ptr_mode = false;
+    tg_light_mode = !dark_theme;
     running = true;
     term_win = NULL;
     mx = sw / 2;
@@ -1264,7 +1446,7 @@ void gui_run(void)
     while (running) {
         struct input_event ev;
         bool redraw = false;
-        int r = input_wait(&ev, 100);
+        int r = input_wait(&ev, animating ? 30 : 100);
 
         while (r == 0) {
             if (ev.type == INPUT_MOUSE)
@@ -1292,6 +1474,8 @@ void gui_run(void)
             last_sec = sec;
             redraw = true;
         }
+        if (animating)
+            redraw = true;
         if (redraw) {
             render();
             if (boot_has_arg("guitest")) serial_write("GUI: frame\n");

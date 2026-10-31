@@ -34,6 +34,7 @@ void tg_scroll_view(struct tgrid *tg, int lines);   /* >0 = back in time */
 void tg_mark_all_dirty(struct tgrid *tg);
 const struct tcell *tg_cell(const struct tgrid *tg, int row, int col);
 
+extern bool tg_light_mode;                         /* black on white rendering */
 uint32_t tg_color(uint8_t vga_index);               /* VGA colour -> 0xRRGGBB */
 
 /*
