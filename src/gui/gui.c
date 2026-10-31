@@ -36,11 +36,11 @@
 /* Colours and sizes                                                   */
 /* ------------------------------------------------------------------ */
 
-#define C_BG_TOP     GFX_RGB(16, 32, 72)
-#define C_BG_BOTTOM  GFX_RGB(20, 110, 140)
+#define C_BG_TOP     GFX_RGB(58, 72, 168)
+#define C_BG_BOTTOM  GFX_RGB(236, 128, 150)
 #define C_TASKBAR    GFX_RGB(28, 32, 44)
 #define C_TASKBAR_HI GFX_RGB(52, 60, 82)
-#define C_ACCENT     GFX_RGB(40, 120, 240)
+#define C_ACCENT     GFX_RGB(10, 132, 255)
 #define C_TITLE_ON   GFX_RGB(40, 100, 210)
 #define C_TITLE_OFF  GFX_RGB(86, 92, 108)
 #define C_WIN_BG     GFX_RGB(246, 247, 250)
@@ -48,11 +48,12 @@
 #define C_TEXT_DIM   GFX_RGB(110, 116, 130)
 #define C_LIGHT      GFX_RGB(236, 240, 248)
 
-#define TITLE_H    22
-#define TASKBAR_H  32
+#define TITLE_H    28
+#define MENUBAR_H  28
+#define TASKBAR_H  84          /* space reserved for the dock */
 #define MAX_WINDOWS 8
-#define MENU_W     190
-#define MENU_ITEM_H 24
+#define MENU_W     220
+#define MENU_ITEM_H 26
 
 enum app_type { APP_TERMINAL, APP_FILES, APP_SYSINFO, APP_NOTEPAD, APP_ABOUT };
 
@@ -241,7 +242,7 @@ static struct window *win_create(enum app_type type, const char *title, int cw, 
     if (slot < 0)
         return NULL;
     if (cw > sw - 20) cw = sw - 20;
-    if (ch > sh - TASKBAR_H - TITLE_H - 20) ch = sh - TASKBAR_H - TITLE_H - 20;
+    if (ch > sh - TASKBAR_H - MENUBAR_H - TITLE_H - 20) ch = sh - TASKBAR_H - MENUBAR_H - TITLE_H - 20;
 
     struct window *w = &wins[slot];
     memset(w, 0, sizeof *w);
@@ -255,7 +256,7 @@ static struct window *win_create(enum app_type type, const char *title, int cw, 
     strlcpy(w->title, title, sizeof w->title);
     int off = (nz % 6) * 26;                        /* cascade new windows */
     w->x = MAX(10, (sw - outer_w(w)) / 2 - 60 + off);
-    w->y = MAX(10, (sh - TASKBAR_H - outer_h(w)) / 2 - 30 + off);
+    w->y = MAX(MENUBAR_H + 8, (sh - TASKBAR_H - outer_h(w)) / 2 - 30 + off);
     zorder[nz++] = slot;
     return w;
 }
@@ -280,7 +281,8 @@ static struct window *open_terminal(void)
         bring_to_front(win_index(term_win));
         return term_win;
     }
-    struct window *w = win_create(APP_TERMINAL, "Terminal", 656, 400);
+    int tcw = MIN(sw - 160, 920) / 8 * 8, tch = MIN(sh - TASKBAR_H - MENUBAR_H - 90, 560) / 16 * 16;
+    struct window *w = win_create(APP_TERMINAL, "Terminal", tcw, tch);
     if (!w)
         return NULL;
     if (!tg_init(&w->tg, w->cw / 8, w->ch / 16, 300)) {
@@ -736,32 +738,65 @@ static void draw_window_contents(struct window *w)
 /* Desktop drawing                                                     */
 /* ------------------------------------------------------------------ */
 
-struct icon { const char *label; char glyph; enum app_type app; uint32_t color; };
+struct icon { const char *label; char glyph; enum app_type app; uint32_t color, color2; };
 
 static const struct icon icons[] = {
-    { "Terminal", '>', APP_TERMINAL, GFX_RGB(40, 44, 56) },
-    { "Files",    'F', APP_FILES,    GFX_RGB(230, 170, 40) },
-    { "Info",     'i', APP_SYSINFO,  GFX_RGB(50, 150, 110) },
-    { "Notepad",  'N', APP_NOTEPAD,  GFX_RGB(90, 110, 200) },
-    { "About",    '?', APP_ABOUT,    GFX_RGB(160, 90, 190) },
+    { "Terminal", '>', APP_TERMINAL, GFX_RGB(70, 74, 86),   GFX_RGB(20, 22, 28) },
+    { "Files",    'F', APP_FILES,    GFX_RGB(90, 190, 250), GFX_RGB(20, 120, 230) },
+    { "Info",     'i', APP_SYSINFO,  GFX_RGB(120, 220, 140), GFX_RGB(30, 160, 90) },
+    { "Notepad",  'N', APP_NOTEPAD,  GFX_RGB(255, 220, 90), GFX_RGB(240, 160, 30) },
+    { "About",    '?', APP_ABOUT,    GFX_RGB(210, 140, 250), GFX_RGB(140, 70, 220) },
 };
+#define ICON_N 5
+#define DOCK_ICON 52
+#define DOCK_GAP 14
 
-static void icon_rect(int i, int *x, int *y)
+static void dock_rect(int *x, int *y, int *w, int *h)
 {
-    *x = 18;
-    *y = 16 + i * 84;
+    *w = ICON_N * DOCK_ICON + (ICON_N - 1) * DOCK_GAP + 32;
+    *h = 66;
+    *x = (sw - *w) / 2;
+    *y = sh - *h - 8;
 }
 
-static void draw_icons(struct gfx_surface *s)
+static int dock_icon_x(int i)
 {
-    for (unsigned i = 0; i < ARRAY_SIZE(icons); i++) {
-        int x, y;
-        icon_rect((int)i, &x, &y);
-        gfx_fill_round_rect(s, x, y, 48, 48, 10, icons[i].color);
-        gfx_char(s, x + 16, y + 16, icons[i].glyph, GFX_WHITE, GFX_TRANSPARENT, 2);
-        int lw = gfx_text_width(icons[i].label, 1);
-        gfx_text(s, x + 24 - lw / 2 + 1, y + 54, icons[i].label, GFX_BLACK, GFX_TRANSPARENT, 1);
-        gfx_text(s, x + 24 - lw / 2, y + 53, icons[i].label, GFX_WHITE, GFX_TRANSPARENT, 1);
+    int x, y, w, h;
+    dock_rect(&x, &y, &w, &h);
+    return x + 16 + i * (DOCK_ICON + DOCK_GAP);
+}
+
+static bool app_running(enum app_type t)
+{
+    for (int i = 0; i < MAX_WINDOWS; i++)
+        if (wins[i].used && wins[i].type == t)
+            return true;
+    return false;
+}
+
+static void draw_dock(struct gfx_surface *s)
+{
+    int x, y, w, h;
+
+    dock_rect(&x, &y, &w, &h);
+    gfx_fill_rect_alpha(s, x, y, w, h, GFX_RGB(255, 255, 255), 70);
+    gfx_fill_round_rect(s, x, y, w, h, 18, gfx_blend(gfx_get_pixel(s, x + w / 2, y + 2), GFX_RGB(255, 255, 255), 90));
+    for (int i = 0; i < ICON_N; i++) {
+        int ix = dock_icon_x(i);
+        bool hot = mx >= ix - 4 && mx < ix + DOCK_ICON + 4 && my >= y && my < y + h;
+        int sz = hot ? 60 : DOCK_ICON;
+        int dx = ix - (sz - DOCK_ICON) / 2, dy = y + 7 - (hot ? 8 : 0);
+        gfx_fill_round_rect(s, dx, dy, sz, sz, 13, icons[i].color2);
+        gfx_fill_round_rect(s, dx, dy, sz, sz * 6 / 10, 13, icons[i].color);
+        gfx_char(s, dx + sz / 2 - 8, dy + sz / 2 - 8, icons[i].glyph, GFX_WHITE, GFX_TRANSPARENT, 2);
+        if (app_running(icons[i].app))
+            gfx_fill_circle(s, ix + DOCK_ICON / 2, y + h - 6, 2, GFX_RGB(40, 40, 50));
+        if (hot) {
+            int lw = gfx_text_width(icons[i].label, 1) + 16;
+            int lx = ix + DOCK_ICON / 2 - lw / 2, ly = y - 34;
+            gfx_fill_round_rect(s, lx, ly, lw, 20, 6, GFX_RGB(60, 60, 68));
+            gfx_text(s, lx + 8, ly + 6, icons[i].label, GFX_WHITE, GFX_TRANSPARENT, 1);
+        }
     }
 }
 
@@ -769,18 +804,21 @@ static void draw_window(struct gfx_surface *s, struct window *w, bool active)
 {
     int ow = outer_w(w), oh = outer_h(w);
 
-    gfx_fill_rect_alpha(s, w->x + 4, w->y + 4, ow, oh, GFX_BLACK, 60);          /* shadow */
-    gfx_fill_rect(s, w->x, w->y, ow, oh, active ? C_TITLE_ON : C_TITLE_OFF);
-    gfx_gradient_v(s, w->x + 1, w->y + 1, ow - 2, TITLE_H - 1,
-                   active ? GFX_RGB(70, 140, 250) : GFX_RGB(120, 126, 142),
-                   active ? C_TITLE_ON : C_TITLE_OFF);
-    gfx_text(s, w->x + 8, w->y + 7, w->title, GFX_WHITE, GFX_TRANSPARENT, 1);
-    /* close button */
-    int bx = w->x + ow - 20, by = w->y + 4;
-    gfx_fill_round_rect(s, bx, by, 14, 14, 3, GFX_RGB(220, 70, 70));
-    gfx_line(s, bx + 4, by + 4, bx + 9, by + 9, GFX_WHITE);
-    gfx_line(s, bx + 9, by + 4, bx + 4, by + 9, GFX_WHITE);
-    /* client */
+    for (int k = 3; k >= 0; k--)                                      /* soft shadow */
+        gfx_fill_round_rect(s, w->x - k * 3, w->y + 6 - k, ow + k * 6, oh + k * 4, 14,
+                            gfx_blend(gfx_get_pixel(s, w->x + ow / 2, MIN(sh - 1, w->y + oh + 4)), GFX_BLACK, 22));
+    gfx_fill_round_rect(s, w->x, w->y, ow, oh, 10, C_WIN_BG);
+    uint32_t tcol = active ? GFX_RGB(232, 232, 236) : GFX_RGB(244, 244, 247);
+    gfx_fill_round_rect(s, w->x, w->y, ow, TITLE_H + 12, 10, tcol);
+    gfx_fill_rect(s, w->x, w->y + TITLE_H, ow, 12, C_WIN_BG);
+    gfx_hline(s, w->x, w->y + TITLE_H - 1, ow, GFX_RGB(205, 205, 210));
+    /* traffic lights */
+    gfx_fill_circle(s, w->x + 16, w->y + 14, 6, active ? GFX_RGB(255, 95, 87) : GFX_RGB(200, 200, 204));
+    gfx_fill_circle(s, w->x + 36, w->y + 14, 6, active ? GFX_RGB(254, 188, 46) : GFX_RGB(200, 200, 204));
+    gfx_fill_circle(s, w->x + 56, w->y + 14, 6, active ? GFX_RGB(40, 200, 64) : GFX_RGB(200, 200, 204));
+    int tw = gfx_text_width(w->title, 1);
+    gfx_text(s, w->x + (ow - tw) / 2, w->y + 10, w->title,
+             active ? GFX_RGB(40, 40, 46) : GFX_RGB(150, 150, 158), GFX_TRANSPARENT, 1);
     draw_window_contents(w);
     gfx_blit(s, w->x + 1, w->y + TITLE_H, w->surf, 0, 0, w->cw, w->ch);
 }
@@ -794,9 +832,9 @@ static const char *menu_labels[] = {
 static void menu_rect(int *x, int *y, int *w, int *h)
 {
     *w = MENU_W;
-    *h = MENU_COUNT * MENU_ITEM_H + 8;
-    *x = 0;
-    *y = sh - TASKBAR_H - *h;
+    *h = MENU_COUNT * MENU_ITEM_H + 10;
+    *x = 8;
+    *y = MENUBAR_H + 2;
 }
 
 static void draw_menu(struct gfx_surface *s)
@@ -804,51 +842,37 @@ static void draw_menu(struct gfx_surface *s)
     int x, y, w, h;
 
     menu_rect(&x, &y, &w, &h);
-    gfx_fill_rect(s, x, y, w, h, C_TASKBAR);
-    gfx_rect(s, x, y, w, h, C_TASKBAR_HI);
+    gfx_fill_round_rect(s, x + 2, y + 4, w, h, 10, gfx_blend(gfx_get_pixel(s, x + 4, y + h + 6), GFX_BLACK, 40));
+    gfx_fill_round_rect(s, x, y, w, h, 10, GFX_RGB(244, 244, 248));
     for (int i = 0; i < MENU_COUNT; i++) {
-        int iy = y + 4 + i * MENU_ITEM_H;
-        bool hot = have_mouse && mx >= x && mx < x + w && my >= iy && my < iy + MENU_ITEM_H;
+        int iy = y + 5 + i * MENU_ITEM_H;
+        bool hot = mx >= x && mx < x + w && my >= iy && my < iy + MENU_ITEM_H;
         if (hot)
-            gfx_fill_rect(s, x + 2, iy, w - 4, MENU_ITEM_H, C_ACCENT);
-        gfx_text(s, x + 14, iy + 8, menu_labels[i], GFX_WHITE, GFX_TRANSPARENT, 1);
+            gfx_fill_round_rect(s, x + 5, iy, w - 10, MENU_ITEM_H - 2, 6, C_ACCENT);
+        gfx_text(s, x + 16, iy + 9, menu_labels[i], hot ? GFX_WHITE : C_TEXT, GFX_TRANSPARENT, 1);
         if (i == 4)
-            gfx_hline(s, x + 8, iy + MENU_ITEM_H - 1, w - 16, C_TASKBAR_HI);
+            gfx_hline(s, x + 12, iy + MENU_ITEM_H - 1, w - 24, GFX_RGB(210, 210, 216));
     }
 }
 
-static int taskbar_button_x(int slot) { return 96 + slot * 138; }
-
-static void draw_taskbar(struct gfx_surface *s)
+static void draw_menubar(struct gfx_surface *s)
 {
-    int y = sh - TASKBAR_H;
-
-    gfx_fill_rect(s, 0, y, sw, TASKBAR_H, C_TASKBAR);
-    gfx_hline(s, 0, y, sw, C_TASKBAR_HI);
-    gfx_fill_round_rect(s, 4, y + 4, 80, TASKBAR_H - 8, 6, menu_open ? C_ACCENT : C_TASKBAR_HI);
-    gfx_draw_logo(s, 10, y + 7, 18);
-    gfx_text(s, 34, y + 12, "MyOS", GFX_WHITE, GFX_TRANSPARENT, 1);
-
-    int slot = 0;
-    for (int i = 0; i < nz; i++) {
-        struct window *w = &wins[zorder[i]];
-        int bx = taskbar_button_x(slot++);
-        bool active = i == nz - 1;
-        gfx_fill_round_rect(s, bx, y + 4, 132, TASKBAR_H - 8, 5, active ? C_ACCENT : C_TASKBAR_HI);
-        char t[17];
-        strlcpy(t, w->title, sizeof t);
-        gfx_text(s, bx + 8, y + 12, t, GFX_WHITE, GFX_TRANSPARENT, 1);
-    }
-
+    gfx_fill_rect_alpha(s, 0, 0, sw, MENUBAR_H, GFX_RGB(246, 246, 250), 215);
+    gfx_hline(s, 0, MENUBAR_H - 1, sw, GFX_RGB(200, 200, 208));
+    if (menu_open)
+        gfx_fill_round_rect(s, 4, 3, 36, MENUBAR_H - 6, 6, C_ACCENT);
+    gfx_draw_logo(s, 14, 6, 16);
+    struct window *f = focused();
+    gfx_text(s, 52, 10, f ? f->title : "Desktop", C_TEXT, GFX_TRANSPARENT, 1);
     if (!have_mouse || ptr_mode)
-        gfx_text(s, 100 + nz * 138, y + 12, ptr_mode ? "POINTER MODE: arrows move, Enter clicks, F2 or Esc exits" : "No mouse? Press F2: arrows move pointer, Enter clicks",
-                 GFX_RGB(150, 160, 185), GFX_TRANSPARENT, 1);
+        gfx_text(s, sw / 2 - 150, 10, ptr_mode ? "POINTER MODE: arrows move, Enter clicks, F2/Esc exits"
+                 : "No mouse? Press F2: arrows move pointer", GFX_RGB(150, 60, 60), GFX_TRANSPARENT, 1);
 
     uint32_t tm[6];
     char clock[24];
     rtc_read(tm);
-    ksnprintf(clock, sizeof clock, "%02u:%02u:%02u UTC", tm[3], tm[4], tm[5]);
-    gfx_text(s, sw - gfx_text_width(clock, 1) - 12, y + 12, clock, GFX_WHITE, GFX_TRANSPARENT, 1);
+    ksnprintf(clock, sizeof clock, "%02u:%02u:%02u", tm[3], tm[4], tm[5]);
+    gfx_text(s, sw - gfx_text_width(clock, 1) - 14, 10, clock, C_TEXT, GFX_TRANSPARENT, 1);
 }
 
 static const char *cursor_shape[19] = {
@@ -903,10 +927,10 @@ static void render(void)
         gfx_blit(s, 0, 0, wallpaper, 0, 0, sw, sh);
     else
         gfx_fill_rect(s, 0, 0, sw, sh, C_BG_TOP);
-    draw_icons(s);
     for (int i = 0; i < nz; i++)
         draw_window(s, &wins[zorder[i]], i == nz - 1);
-    draw_taskbar(s);
+    draw_dock(s);
+    draw_menubar(s);
     if (menu_open)
         draw_menu(s);
     draw_cursor(s);
@@ -1045,45 +1069,42 @@ static void mouse_click(int x, int y)
     if (menu_open) {
         menu_rect(&mxx, &myy, &mw, &mh);
         if (x >= mxx && x < mxx + mw && y >= myy && y < myy + mh) {
-            int i = (y - myy - 4) / MENU_ITEM_H;
+            int i = (y - myy - 5) / MENU_ITEM_H;
             if (i >= 0 && i < MENU_COUNT)
                 menu_action(i);
             return;
         }
         menu_open = false;
-        if (y < sh - TASKBAR_H)
+        if (y >= MENUBAR_H)
             return;
     }
-    if (y >= sh - TASKBAR_H) {                              /* taskbar */
-        if (x < 90) {
+    if (y < MENUBAR_H) {                                    /* menu bar */
+        if (x < 44)
             menu_open = !menu_open;
+        return;
+    }
+    {                                                       /* dock */
+        int dx, dy, dw, dh;
+        dock_rect(&dx, &dy, &dw, &dh);
+        if (x >= dx && x < dx + dw && y >= dy - 10 && y < dy + dh) {
+            for (int i = 0; i < ICON_N; i++) {
+                int ix = dock_icon_x(i);
+                if (x >= ix - 4 && x < ix + DOCK_ICON + 4)
+                    open_app(icons[i].app);
+            }
             return;
         }
-        for (int i = 0; i < nz; i++) {
-            int bx = taskbar_button_x(i);
-            if (x >= bx && x < bx + 132) {
-                bring_to_front(zorder[i]);
-                return;
-            }
-        }
-        return;
     }
     int idx = hit_window(x, y);
-    if (idx < 0) {                                          /* desktop icons */
-        for (unsigned i = 0; i < ARRAY_SIZE(icons); i++) {
-            int ix, iy;
-            icon_rect((int)i, &ix, &iy);
-            if (x >= ix - 8 && x < ix + 56 && y >= iy && y < iy + 70)
-                open_app(icons[i].app);
-        }
+    if (idx < 0)
         return;
-    }
     struct window *w = &wins[idx];
     bring_to_front(idx);
     int lx = x - w->x, ly = y - w->y;
     if (ly < TITLE_H) {
-        if (lx >= outer_w(w) - 22) {                        /* close button */
-            win_close(w);
+        if (lx < 70) {                                      /* traffic lights */
+            if (lx < 26)
+                win_close(w);
             return;
         }
         drag_idx = idx;
@@ -1109,8 +1130,11 @@ static void mouse_click(int x, int y)
 static void handle_mouse(const struct input_event *ev)
 {
     have_mouse = true;
-    mx = MAX(0, MIN(sw - 1, mx + ev->dx));
-    my = MAX(0, MIN(sh - 1, my + ev->dy));
+    int ax = ev->dx, ay = ev->dy;
+    if (ax > 6 || ax < -6) ax *= 2;
+    if (ay > 6 || ay < -6) ay *= 2;
+    mx = MAX(0, MIN(sw - 1, mx + ax * 3 / 2));
+    my = MAX(0, MIN(sh - 1, my + ay * 3 / 2));
     bool left_now = ev->buttons & MOUSE_LEFT, left_before = mbuttons & MOUSE_LEFT;
 
     if (left_now && !left_before)
@@ -1119,7 +1143,7 @@ static void handle_mouse(const struct input_event *ev)
         drag_idx = -1;
     if (left_now && drag_idx >= 0 && wins[drag_idx].used) {
         wins[drag_idx].x = MAX(-wins[drag_idx].cw + 60, MIN(sw - 60, mx - drag_dx));
-        wins[drag_idx].y = MAX(0, MIN(sh - TASKBAR_H - TITLE_H, my - drag_dy));
+        wins[drag_idx].y = MAX(MENUBAR_H, MIN(sh - TASKBAR_H - TITLE_H, my - drag_dy));
     }
     mbuttons = ev->buttons;
 }
@@ -1221,14 +1245,14 @@ void gui_run(void)
     console_set_key_source(term_getkey);
     open_terminal();
     if (term_win) {
-        term_win->x = 70;
-        term_win->y = 24;
+        term_win->x = 40;
+        term_win->y = MENUBAR_H + 16;
     }
     open_app(APP_SYSINFO);
     if (nz > 1) {
         struct window *info = &wins[zorder[nz - 1]];
         info->x = MAX(20, sw - outer_w(info) - 30);
-        info->y = 50;
+        info->y = MENUBAR_H + 40;
         bring_to_front(win_index(term_win));
     }
 
