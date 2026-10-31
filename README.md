@@ -1,5 +1,5 @@
 
-# MyOS 2.0.2 — Foundation
+# MyOS 2.1.0 "Horizon"
 
 **A hobby operating system built from scratch in C and x86 assembly.**
 
