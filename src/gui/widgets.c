@@ -26,8 +26,47 @@ const struct gui_theme gui_theme_dark = {
     .tl_mono = { GFX_RGB(235, 235, 240), GFX_RGB(160, 160, 168), GFX_RGB(110, 110, 118) },
 };
 
-const struct gui_theme *gui_th = &gui_theme_light;
-struct gui_prefs gui_prefs = { .dark = false, .anim = true, .color_buttons = false, .ptr_speed = 1 };
+/* The theme in use: a copy of the light or dark theme with the accent colour applied. */
+static struct gui_theme cur_theme;
+const struct gui_theme *gui_th = &cur_theme;
+struct gui_prefs gui_prefs = { .dark = false, .anim = true, .color_buttons = true, .accent = 0, .ptr_speed = 1 };
+
+const char *const gui_accent_name[GUI_ACCENTS] = {
+    "Blue", "Purple", "Pink", "Red", "Orange", "Green", "Graphite"
+};
+
+static const uint32_t accent_light[GUI_ACCENTS] = {
+    GFX_RGB(0, 122, 255), GFX_RGB(175, 82, 222), GFX_RGB(255, 45, 85), GFX_RGB(255, 59, 48),
+    GFX_RGB(255, 149, 0), GFX_RGB(40, 180, 70), GFX_RGB(28, 28, 30)
+};
+static const uint32_t accent_dark[GUI_ACCENTS] = {
+    GFX_RGB(10, 132, 255), GFX_RGB(191, 90, 242), GFX_RGB(255, 55, 95), GFX_RGB(255, 69, 58),
+    GFX_RGB(255, 159, 10), GFX_RGB(48, 209, 88), GFX_RGB(245, 245, 247)
+};
+
+uint32_t gui_accent_color(int i, bool dark)
+{
+    if (i < 0 || i >= GUI_ACCENTS)
+        i = 0;
+    return dark ? accent_dark[i] : accent_light[i];
+}
+
+void gui_theme_apply(void)
+{
+    int a = gui_prefs.accent;
+
+    cur_theme = gui_prefs.dark ? gui_theme_dark : gui_theme_light;
+    if (a < 0 || a >= GUI_ACCENTS)
+        a = 0;
+    if (a != GUI_ACCENTS - 1) {                         /* a colour: filled buttons, selections, wallpaper tint */
+        uint32_t c = gui_accent_color(a, gui_prefs.dark);
+        cur_theme.accent = c;
+        cur_theme.accent_fg = GFX_RGB(255, 255, 255);
+        cur_theme.sel = c;
+        cur_theme.sel_text = GFX_RGB(255, 255, 255);
+        cur_theme.bg_bot = gfx_blend(cur_theme.bg_bot, c, gui_prefs.dark ? 40 : 34);
+    }
+}
 
 void gui_button(struct gfx_surface *s, int x, int y, int w, int h, const char *label, bool on)
 {

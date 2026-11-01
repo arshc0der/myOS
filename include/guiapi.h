@@ -43,12 +43,20 @@ struct gui_prefs {
     bool dark;                      /* dark theme                      */
     bool anim;                      /* animations                      */
     bool color_buttons;             /* red/yellow/green window buttons */
+    int  accent;                    /* index into the accent colours (6 = graphite / monochrome) */
+    int  pixfmt;                    /* 0 auto, 1 RGB, 2 BGR (display colour order) */
     int  ptr_speed;                 /* 0 slow, 1 normal, 2 fast        */
 };
 
 extern const struct gui_theme *gui_th;      /* colours of the current theme */
 extern const struct gui_theme gui_theme_light, gui_theme_dark;
 extern struct gui_prefs gui_prefs;
+
+#define GUI_ACCENTS 7
+extern const char *const gui_accent_name[GUI_ACCENTS];
+uint32_t gui_accent_color(int index, bool dark);   /* swatch colour */
+void gui_theme_apply(void);         /* rebuild gui_th from prefs (dark, accent) */
+void gui_refresh_theme(void);       /* apply + repaint everything */
 
 struct gui_window;
 

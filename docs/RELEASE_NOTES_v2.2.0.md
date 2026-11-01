@@ -17,3 +17,7 @@
 - Tested in the Bochs emulator only; real hardware may need fixes. PS/2 still works alongside USB.
 
 See docs/USB.md.
+
+## 2.2.1 fixes
+- Yellow screen fix: the display colour layout reported by the boot loader is now checked; if it is missing or wrong, standard RGB is used. Settings > Display > "Colour order" (Auto / RGB / BGR) fixes any remaining wrong colours at run time, and the boot option `fbfmt=bgr` (or `fbfmt=rgb`) does the same.
+- Accent colours: Blue (default), Purple, Pink, Red, Orange, Green, Graphite. Settings > Appearance has Theme (Light/Dark), Style (Colorful/Monochrome), Accent colour and Window buttons.

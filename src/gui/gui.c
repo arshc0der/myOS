@@ -211,13 +211,18 @@ static void build_wallpaper(void)
     gfx_fill_circle(wallpaper, sw * 22 / 100, sh * 80 / 100, sh / 4, c2);
 }
 
+void gui_refresh_theme(void)
+{
+    gui_theme_apply();
+    tg_light_mode = !gui_prefs.dark;
+    build_wallpaper();
+    gui_redraw();
+}
+
 void gui_set_dark(bool dark)
 {
     gui_prefs.dark = dark;
-    gui_th = dark ? &gui_theme_dark : &gui_theme_light;
-    tg_light_mode = !dark;
-    build_wallpaper();
-    gui_redraw();
+    gui_refresh_theme();
 }
 
 /* ------------------------------------------------------------------ */
@@ -882,7 +887,7 @@ void gui_run(void)
     my = sh / 2;
     mbuttons = 0;
     drag_idx = -1;
-    gui_th = gui_prefs.dark ? &gui_theme_dark : &gui_theme_light;
+    gui_theme_apply();
     tg_light_mode = !gui_prefs.dark;
     collect_apps();
     build_dock();

@@ -26,6 +26,43 @@ struct gfx_surface *gfx_screen(void) { return &screen; }
 int gfx_width(void) { return screen.w; }
 int gfx_height(void) { return screen.h; }
 
+/* mode 1: red in the high byte (XRGB, the usual layout); mode 2: blue in the high byte (XBGR) */
+static void set_format(int mode)
+{
+    if (fb_bpp == 16) {
+        rsize = 5; gsize = 6; bsize = 5;
+        if (mode == 2) { bpos = 11; gpos = 5; rpos = 0; } else { rpos = 11; gpos = 5; bpos = 0; }
+    } else {
+        rsize = gsize = bsize = 8;
+        gpos = 8;
+        if (mode == 2) { bpos = 16; rpos = 0; } else { rpos = 16; bpos = 0; }
+    }
+}
+
+static void update_fast(void)
+{
+    fast32 = fb_bpp == 32 && rpos == 16 && gpos == 8 && bpos == 0 &&
+             rsize == 8 && gsize == 8 && bsize == 8;
+}
+
+/* Settings > Display: 0 = what the boot loader said, 1 = RGB, 2 = BGR. Fixes wrong colours. */
+void gfx_set_pixel_format(int mode)
+{
+    if (!ready)
+        return;
+    const struct boot_fb *f = &boot_info.fb;
+    if (mode == 0) {
+        rpos = f->red_pos; rsize = f->red_size; gpos = f->green_pos; gsize = f->green_size;
+        bpos = f->blue_pos; bsize = f->blue_size;
+        if (!(rsize && gsize && bsize))
+            set_format(1);
+    } else {
+        set_format(mode);
+    }
+    update_fast();
+    gfx_flush_all();
+}
+
 bool gfx_init(void)
 {
     const struct boot_fb *f = &boot_info.fb;
@@ -61,18 +98,24 @@ bool gfx_init(void)
     rpos = f->red_pos;   rsize = f->red_size;
     gpos = f->green_pos; gsize = f->green_size;
     bpos = f->blue_pos;  bsize = f->blue_size;
-    if (rsize == 0 && gsize == 0 && bsize == 0) {       /* no info: assume XRGB */
-        rpos = 16; rsize = 8; gpos = 8; gsize = 8; bpos = 0; bsize = 8;
-        if (fb_bpp == 16) { rpos = 11; rsize = 5; gpos = 5; gsize = 6; bpos = 0; bsize = 5; }
-    }
-    fast32 = fb_bpp == 32 && rpos == 16 && gpos == 8 && bpos == 0 &&
-             rsize == 8 && gsize == 8 && bsize == 8;
+    /* The boot loader's colour description is sometimes missing or wrong (a missing
+     * blue channel turns white into yellow). Only trust it when it is plausible. */
+    bool sane = rsize >= 1 && rsize <= 8 && gsize >= 1 && gsize <= 8 && bsize >= 1 && bsize <= 8 &&
+                rpos + rsize <= fb_bpp && gpos + gsize <= fb_bpp && bpos + bsize <= fb_bpp &&
+                rpos != gpos && gpos != bpos && rpos != bpos;
+    if (!sane)
+        set_format(1);
+    if (boot_has_arg("fbfmt=bgr"))
+        set_format(2);
+    else if (boot_has_arg("fbfmt=rgb"))
+        set_format(1);
+    update_fast();
 
     memset((void *)back, 0, (size_t)f->width * f->height * 4);
     gfx_surface_init(&screen, (uint32_t *)back, (int)f->width, (int)f->height);
     ready = true;
-    log_info("gfx", "framebuffer %ux%u, %u bpp at 0x%08x (%s)", f->width, f->height,
-             f->bpp, (uint32_t)f->addr, fast32 ? "direct copy" : "converted");
+    log_info("gfx", "framebuffer %ux%u, %u bpp at 0x%08x (%s; r%u/%u g%u/%u b%u/%u)", f->width, f->height,
+             f->bpp, (uint32_t)f->addr, fast32 ? "direct copy" : "converted", rpos, rsize, gpos, gsize, bpos, bsize);
     return true;
 }
 

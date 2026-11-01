@@ -43,12 +43,24 @@ static void settings_draw(struct gui_window *w)
     switch (st->page) {
     case 0: {
         const char *a[] = { "Light", "Dark" }, *b[] = { "Monochrome", "Color" }, *c[] = { "On", "Off" };
+        const char *sty[] = { "Colorful", "Monochrome" };
         heading(s, 64, "Theme");
         gui_segment(s, X0, 80, SEGW, a, 2, gui_prefs.dark ? 1 : 0);
-        heading(s, 126, "Window buttons");
-        gui_segment(s, X0, 142, SEGW, b, 2, gui_prefs.color_buttons ? 1 : 0);
-        heading(s, 188, "Animations");
-        gui_segment(s, X0, 204, SEGW, c, 2, gui_prefs.anim ? 0 : 1);
+        heading(s, 118, "Style");
+        gui_segment(s, X0, 134, SEGW, sty, 2, gui_prefs.accent == GUI_ACCENTS - 1 ? 1 : 0);
+        heading(s, 172, "Accent colour");
+        for (int i = 0; i < GUI_ACCENTS; i++) {
+            int cx = X0 + 15 + i * 42;
+            if (i == gui_prefs.accent)
+                gfx_fill_circle(s, cx, 203, 16, gui_th->text);
+            gfx_fill_circle(s, cx, 203, i == gui_prefs.accent ? 13 : 15, gui_th->win);
+            gfx_fill_circle(s, cx, 203, i == gui_prefs.accent ? 11 : 13, gui_accent_color(i, gui_prefs.dark));
+        }
+        gfx_text(s, X0, 224, gui_accent_name[gui_prefs.accent], gui_th->dim, GFX_TRANSPARENT, 1);
+        heading(s, 246, "Window buttons");
+        gui_segment(s, X0, 262, SEGW, b, 2, gui_prefs.color_buttons ? 1 : 0);
+        heading(s, 300, "Animations");
+        gui_segment(s, X0, 316, SEGW, c, 2, gui_prefs.anim ? 0 : 1);
         break;
     }
     case 1: {
@@ -67,6 +79,11 @@ static void settings_draw(struct gui_window *w)
         gfx_text(s, X0, 130, "The boot loader picks the screen size.", gui_th->dim, GFX_TRANSPARENT, 1);
         gfx_text(s, X0, 144, "To change it, restart and open", gui_th->dim, GFX_TRANSPARENT, 1);
         gfx_text(s, X0, 158, "\"Display resolution\" in the boot menu.", gui_th->dim, GFX_TRANSPARENT, 1);
+        {
+            const char *f[] = { "Auto", "RGB", "BGR" };
+            heading(s, 196, "Colour order (use if colours look wrong)");
+            gui_segment(s, X0, 212, SEGW, f, 3, gui_prefs.pixfmt);
+        }
         break;
     case 3: {
         heading(s, 64, "USB devices");
@@ -99,11 +116,28 @@ static void settings_click(struct gui_window *w, int x, int y, int buttons)
     } else if (x >= X0 && x < X0 + SEGW) {
         if (st->page == 0) {
             int i = (x - X0) / (SEGW / 2);
-            if (y >= 80 && y < 106) gui_set_dark(i == 1);
-            else if (y >= 142 && y < 168) gui_prefs.color_buttons = i == 1;
-            else if (y >= 204 && y < 230) gui_prefs.anim = i == 0;
+            if (y >= 80 && y < 106) {
+                gui_set_dark(i == 1);
+            } else if (y >= 134 && y < 160) {                  /* style: colourful or monochrome */
+                gui_prefs.accent = i == 1 ? GUI_ACCENTS - 1 : 0;
+                gui_prefs.color_buttons = i == 0;
+                gui_refresh_theme();
+            } else if (y >= 187 && y < 220) {
+                int k = (x - X0) / 42;
+                if (k >= 0 && k < GUI_ACCENTS) {
+                    gui_prefs.accent = k;
+                    gui_refresh_theme();
+                }
+            } else if (y >= 262 && y < 288) {
+                gui_prefs.color_buttons = i == 1;
+            } else if (y >= 316 && y < 342) {
+                gui_prefs.anim = i == 0;
+            }
         } else if (st->page == 1 && y >= 80 && y < 106) {
             gui_prefs.ptr_speed = (x - X0) / (SEGW / 3);
+        } else if (st->page == 2 && y >= 212 && y < 238) {
+            gui_prefs.pixfmt = (x - X0) / (SEGW / 3);
+            gfx_set_pixel_format(gui_prefs.pixfmt);
         }
     }
     gui_redraw();
@@ -143,7 +177,7 @@ static void settings_icon(struct gfx_surface *s, int x, int y, int sz, uint32_t 
 }
 
 static const struct gui_app settings_app = {
-    .name = "Settings", .title = "Settings", .cw = 520, .ch = 330, .single = true, .dock = 50,
+    .name = "Settings", .title = "Settings", .cw = 520, .ch = 360, .single = true, .dock = 50,
     .open = settings_open, .draw = settings_draw, .click = settings_click, .key = settings_key,
     .tick = settings_tick, .icon = settings_icon,
 };
