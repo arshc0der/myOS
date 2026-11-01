@@ -14,9 +14,10 @@
  * so a script can turn it into a picture:  FBDUMP-BEGIN w h ... FBDUMP-END */
 void gfx_dump_serial(void)
 {
-    int w = gfx_width() / 2, h = gfx_height() / 2;
+    int k = boot_has_arg("fbfull") ? 1 : 2;
+    int w = gfx_width() / k, h = gfx_height() / k;
     static const char hex[] = "0123456789abcdef";
-    char row[4096];
+    static char row[8192];
 
     serial_write("\nFBDUMP-BEGIN ");
     char hdr[32];
@@ -25,7 +26,7 @@ void gfx_dump_serial(void)
     for (int y = 0; y < h; y++) {
         int n = 0;
         for (int x = 0; x < w && n + 8 < (int)sizeof row; x++) {
-            uint32_t c = gfx_display_pixel(x * 2, y * 2);
+            uint32_t c = gfx_display_pixel(x * k, y * k);
             for (int s = 20; s >= 0; s -= 4)
                 row[n++] = hex[(c >> s) & 15];
         }

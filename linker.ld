@@ -23,6 +23,13 @@ SECTIONS
         __stop_fs_drivers = .;
     }
 
+    /* Desktop applications register themselves here (see guiapi.h). */
+    .gui_apps ALIGN(4) : {
+        __start_gui_apps = .;
+        KEEP(*(.gui_apps))
+        __stop_gui_apps = .;
+    }
+
     .data   ALIGN(4096) : { *(.data .data.*) }
     .bss    ALIGN(4096) : {
         __bss_start = .;

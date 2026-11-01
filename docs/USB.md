@@ -1,29 +1,56 @@
-# USB support (version 2.1.2)
+# USB in MyOS (version 2.2.0)
 
-Files: `src/drivers/usb/xhci.c` (controller + device setup), `src/drivers/usb/hid.c`
-(keyboard, mouse and tablet reports), `include/usb.h`.
+## What is supported
 
-What works
-- xHCI (USB 3) host controllers: modern PCs and laptops, QEMU/UTM `qemu-xhci`, VirtualBox, VMware.
-- USB keyboards (boot protocol, key repeat, Caps Lock, Ctrl/Alt/Shift, F-keys, arrows).
-- USB mice and touchpads that present themselves as a mouse (boot protocol).
-- USB tablets (the pointer VMs give you): absolute position, parsed from the HID report descriptor.
-- Plug and unplug while running (ports are rescanned about once a second).
+| Part | Status |
+|------|--------|
+| xHCI (USB 3) controller | supported (first controller only) |
+| EHCI (USB 2) controller | supported; low/full speed ports are handed to the companion UHCI/OHCI controller |
+| OHCI and UHCI (USB 1.1) controllers | supported |
+| USB hubs | supported (up to 8 ports per hub, 5 levels deep), hot plug is polled about once a second |
+| Keyboards, mice, tablets | supported (HID boot protocol or report descriptor) |
+| Precision touchpads (USB) | supported: finger motion moves the pointer, a quick tap clicks, the pad button clicks |
+| I2C / I2C-HID touchpads (built into most laptops) | NOT supported (see below) |
+| Mass storage, audio, etc. | not supported |
 
-Shell: `lsusb` lists the controller and devices. Boot option `nousb` disables the driver.
+PS/2 keyboard and mouse still work at the same time as USB.
 
-Not supported (yet)
-- USB hubs (devices must be plugged straight into the computer's ports).
-- Older controllers: EHCI, OHCI, UHCI.
-- Touchpads that only speak the complex "precision touchpad" protocol or I2C-HID
-  (many modern laptop built-in touchpads). These need a different driver.
-- Mass storage, wheel scrolling, keyboard LEDs.
+## How the code is organised
 
-How it works in short: the controller and the kernel share rings of 16-byte entries (TRBs) in RAM.
-The `usb` kernel task polls the event ring (no interrupts), and for each plugged device it
-resets the port, assigns an address, reads the descriptors, selects the HID interfaces
-and keeps one "interrupt IN" transfer queued per endpoint. Each completed transfer is a
-report, which `hid.c` turns into the same `input_event`s the PS/2 drivers push.
+```
+include/usbcore.h        interface between controller drivers and the shared layer
+src/drivers/usb/usbcore.c  enumeration, hubs, HID setup, hot plug, the "usb" task, lsusb
+src/drivers/usb/xhci.c   xHCI driver
+src/drivers/usb/ehci.c   EHCI driver
+src/drivers/usb/ohci.c   OHCI driver
+src/drivers/usb/uhci.c   UHCI driver
+src/drivers/usb/hid.c    HID reports -> keyboard / mouse events
+```
 
-Tested: enumeration in the Bochs emulator with an xHCI controller (keyboard, mouse, tablet) and
-report decoding in `tests/host` (`make -C tests/host`). Not yet tested on real hardware.
+A controller driver fills in `struct usb_hc_ops` (give a device an address, run a
+control transfer, keep an interrupt-IN transfer running, reset a root port) and
+calls `usb_hc_add()`. Everything else is shared, so adding another controller
+type only needs one new file plus one line in `usb_task()`.
+
+## Limits you should know about
+
+- I2C touchpads: most laptop touchpads are not USB. They are connected over I2C
+  and described by ACPI. That needs an ACPI interpreter and an I2C controller
+  driver, which MyOS does not have. On such laptops the touchpad will not work
+  yet; use PS/2 mode (many laptops offer it), a USB mouse, or the F2 keyboard
+  pointer mode.
+- EHCI cannot talk to a low/full speed device that is plugged into a
+  high-speed hub (it needs "split transactions"). Plug such devices into a
+  root port, or use a controller that supports them (xHCI, or the companion
+  controller). A message is printed when this happens.
+- Only the first xHCI controller is used.
+- Real hardware: everything was tested in the Bochs emulator only (xHCI, EHCI,
+  OHCI, UHCI, a hub with children, companion hand-over). Real computers may need
+  small fixes, because every vendor's controller has quirks.
+
+## Debugging
+
+- `lsusb` lists controllers and devices (hub children are indented).
+- Boot option `nousb` turns USB off. Boot option `usbdump` prints the list
+  3 seconds after boot (used by the emulator tests).
+- Host test for report parsing: `make -C tests/host`.

@@ -202,6 +202,10 @@ static void parse_desc(struct hid_dev *h, const uint8_t *d, int len)
                 first_app = false;
                 if (usages[0] == 6)
                     h->kind = HID_KEYBOARD;
+            } else if (tag == 10 && first_app && nus > 0 && page == 0x0D) {
+                first_app = false;
+                if (usages[0] == 5)             /* Digitizers / Touch Pad */
+                    h->tp = true;
             } else if (tag == 8) {              /* input */
                 uint32_t flags = (uint32_t)item_value(p, size, false);
                 uint32_t total = rsize * rcount;
@@ -230,6 +234,12 @@ static void parse_desc(struct hid_dev *h, const uint8_t *d, int len)
                             h->yo = (uint16_t)pos; h->ys = (uint8_t)rsize;
                             h->ymin = lmin; h->ymax = lmax; h->sy = lmin < 0;
                             ours = true;
+                        } else if (h->tp && page == 0x0D && u == 0x42 && !h->ts && rsize == 1) {
+                            h->to = (uint16_t)pos; h->ts = 1;               /* tip switch of the first finger */
+                            ours = true;
+                        } else if (h->tp && page == 0x0D && u == 0x51 && !h->cs && rsize <= 16) {
+                            h->ci = (uint16_t)pos; h->cs = (uint8_t)rsize;  /* contact id of the first finger */
+                            ours = true;
                         } else if (page == 1 && u == 0x38 && !h->ws) {
                             h->wo = (uint16_t)pos; h->ws = (uint8_t)rsize;
                             ours = true;
@@ -249,7 +259,9 @@ static void parse_desc(struct hid_dev *h, const uint8_t *d, int len)
         }
     }
     if (h->kind != HID_KEYBOARD)
-        h->kind = (h->xs && h->ys) ? (h->rel ? HID_MOUSE : HID_POINTER_ABS) : HID_NONE;
+        h->kind = (h->xs && h->ys) ? ((h->rel || h->tp) ? HID_MOUSE : HID_POINTER_ABS) : HID_NONE;
+    if (h->tp && (!h->ts || h->kind != HID_MOUSE))
+        h->tp = false;                          /* no tip switch: cannot be used as a touchpad */
 }
 
 void hid_setup(struct hid_dev *h, int kind, const uint8_t *desc, int len)
@@ -273,6 +285,62 @@ void hid_setup(struct hid_dev *h, int kind, const uint8_t *desc, int len)
     }
 }
 
+/*
+ * Touchpad: the pad reports where the first finger is. We turn finger motion
+ * into relative pointer motion and a quick touch without motion into a click.
+ */
+static void touchpad_report(struct hid_dev *h, const uint8_t *r, int len, uint32_t base, uint8_t buttons)
+{
+    bool tip = get_bits(r, len, base + h->to, 1) != 0;
+    uint32_t xr = get_bits(r, len, base + h->xo, h->xs);
+    uint32_t yr = get_bits(r, len, base + h->yo, h->ys);
+    int32_t x = h->sx ? sext(xr, h->xs) : (int32_t)xr;
+    int32_t y = h->sy ? sext(yr, h->ys) : (int32_t)yr;
+    int32_t cid = h->cs ? (int32_t)get_bits(r, len, base + h->ci, h->cs) : 0;
+    int32_t range = h->xmax - h->xmin;
+    struct input_event ev = { .type = INPUT_MOUSE, .buttons = buttons };
+    bool send = false;
+
+    if (range <= 0)
+        range = 1;
+    if (tip && h->tdown && cid != h->tcid)      /* another finger took over slot 1: start again */
+        h->tdown = false;
+    if (tip) {
+        if (!h->tdown) {
+            h->tdown = true;
+            h->tcid = cid;
+            h->px = x;
+            h->py = y;
+            h->moved = 0;
+            h->t0 = timer_ticks();
+        } else {
+            int32_t dx = (int32_t)(((int64_t)(x - h->px) * 1600) / range);   /* a full swipe ~ 1600 pixels */
+            int32_t dy = (int32_t)(((int64_t)(y - h->py) * 1600) / range);
+            h->px = x;
+            h->py = y;
+            h->moved += (dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy);
+            ev.dx = dx;
+            ev.dy = dy;
+            send = dx || dy;
+        }
+    } else if (h->tdown) {                      /* finger lifted */
+        h->tdown = false;
+        if (h->moved < 12 && timer_ticks() - h->t0 < 25 && !buttons) {   /* tap = click */
+            struct input_event down = { .type = INPUT_MOUSE, .buttons = 1 };
+            input_push(&down);
+            struct input_event up = { .type = INPUT_MOUSE, .buttons = 0 };
+            input_push(&up);
+            return;
+        }
+    }
+    if (buttons != h->lbuttons)
+        send = true;
+    if (!send)
+        return;
+    h->lbuttons = buttons;
+    input_push(&ev);
+}
+
 static void pointer_report(struct hid_dev *h, const uint8_t *r, int len)
 {
     uint32_t base = 0;
@@ -286,6 +354,10 @@ static void pointer_report(struct hid_dev *h, const uint8_t *r, int len)
     for (int i = 0; i < 3; i++)
         if (h->bo[i] >= 0 && get_bits(r, len, base + h->bpos[i], 1))
             buttons |= (uint8_t)(1 << i);
+    if (h->tp) {
+        touchpad_report(h, r, len, base, buttons);
+        return;
+    }
 
     uint32_t xr = get_bits(r, len, base + h->xo, h->xs);
     uint32_t yr = get_bits(r, len, base + h->yo, h->ys);

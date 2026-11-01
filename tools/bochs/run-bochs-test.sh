@@ -3,6 +3,7 @@
 # the serial port. Usage: tools/bochs/run-bochs-test.sh "<kernel command line>" [seconds]
 #   BOCHS=/path/to/bochs   BOCHS_SHARE=/path/to/share/bochs
 #   VBE=0x118   set a graphics mode first (tests the framebuffer console)
+#   USB=1       use a USB-enabled Bochs; USBCFG="usb_xhci: ..." replaces the default devices
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -30,7 +31,13 @@ import os
 if not os.path.exists(w+"/data.img"): open(w+"/data.img","wb").write(bytes(8*16*63*512))
 PY
 sed "s#BOCHS_SHARE#$SHARE#" "$HERE/bochsrc.txt" > "$W/bochsrc.txt"
-[ -n "$USB" ] && echo 'usb_xhci: enabled=1, n_ports=6, port4=keyboard, port5=tablet, port6=mouse' >> "$W/bochsrc.txt"
+if [ -n "$USB" ]; then
+    if [ -n "$USBCFG" ]; then
+        printf '%s\n' "$USBCFG" >> "$W/bochsrc.txt"
+    else
+        echo 'usb_xhci: enabled=1, n_ports=6, port4=keyboard, port5=tablet, port6=mouse' >> "$W/bochsrc.txt"
+    fi
+fi
 cd "$W"
 rm -f serial.log bochs.log disk.img.lock data.img.lock
 # stop early once the kernel reports a result

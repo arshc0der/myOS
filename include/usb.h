@@ -1,9 +1,9 @@
 /*
  * usb.h - USB support (xHCI host controller + HID keyboards, mice, tablets
- * and touchpads that look like a mouse).
+ * and touchpads, behind xHCI, EHCI, OHCI or UHCI controllers and hubs).
  *
- * The "usb" kernel task starts at boot, finds the xHCI controller on the
- * PCI bus, enumerates the devices plugged into its ports and turns their
+ * The "usb" kernel task starts at boot, finds the USB controllers on the
+ * PCI bus, enumerates the devices plugged into their ports and turns their
  * reports into the same input events the PS/2 drivers produce (see input.h).
  * Disable it with the boot option "nousb". The shell command `lsusb` lists
  * what was found.
@@ -13,6 +13,7 @@
 #include "types.h"
 
 void usb_start(void);                   /* create the usb task */
+int  usb_describe(int index, char *buf, size_t n);   /* one line per device; 0 when no more */
 void usb_dump(void);                    /* print controller + devices (lsusb) */
 
 /* ---- HID report handling (src/drivers/usb/hid.c) ---- */
@@ -37,6 +38,14 @@ struct hid_dev {
     int32_t  xmin, xmax, ymin, ymax;
     bool rel;
     bool sx, sy;                        /* signed fields */
+    /* touchpads (Windows "precision" style: finger X/Y/tip switch, we move the pointer by finger motion) */
+    bool tp;
+    uint16_t to, ci;                    /* bit offsets of the tip switch and the contact id of finger 1 */
+    uint8_t ts, cs;                     /* sizes in bits, 0 = absent */
+    bool tdown;
+    int32_t px, py, moved;
+    uint32_t t0;
+    int32_t tcid;
     /* last values (for absolute devices: only report changes) */
     int32_t lx, ly;
     uint8_t lbuttons;
