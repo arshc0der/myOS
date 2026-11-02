@@ -13,6 +13,8 @@
 #include "vmm.h"
 #include "kstring.h"
 #include "log.h"
+#include "hw.h"
+#include "io.h"
 
 static struct gfx_surface screen;
 static bool ready;
@@ -20,6 +22,9 @@ static uint8_t *fb;                     /* real framebuffer */
 static uint32_t fb_pitch, fb_bpp;
 static uint8_t rpos, rsize, gpos, gsize, bpos, bsize;
 static bool fast32;                     /* 32 bpp, standard XRGB: plain copy */
+
+static paddr_t back_addr;
+static uint32_t back_pages;
 
 bool gfx_available(void) { return ready; }
 struct gfx_surface *gfx_screen(void) { return &screen; }
@@ -92,6 +97,8 @@ bool gfx_init(void)
         vmm_map_range((vaddr_t)f->addr, (paddr_t)f->addr, pages * PAGE_SIZE,
                       VMM_WRITE | VMM_NOCACHE);
 
+    back_addr = back;
+    back_pages = ((f->width * f->height * 4) + PAGE_SIZE - 1) / PAGE_SIZE;
     fb = (uint8_t *)(uint32_t)f->addr;
     fb_pitch = f->pitch;
     fb_bpp = f->bpp;
@@ -183,4 +190,145 @@ uint32_t gfx_display_pixel(int x, int y)
     g = g << (8 - gsize);
     b = b << (8 - bsize);
     return GFX_RGB(r, g, b);
+}
+
+/* ------------------------------------------------------------------ */
+/* Changing the resolution at run time                                 */
+/*                                                                     */
+/* Virtual machines (QEMU / UTM "standard VGA", Bochs, VirtualBox) have a */
+/* "Bochs VBE" display: two I/O ports let us pick a new size without the */
+/* BIOS. Real graphics cards cannot be switched like this without a   */
+/* driver for that card, so there gfx_mode_count() is 0.              */
+/* ------------------------------------------------------------------ */
+
+#define DISPI_INDEX 0x1CE
+#define DISPI_DATA  0x1CF
+#define DI_ID 0
+#define DI_XRES 1
+#define DI_YRES 2
+#define DI_BPP 3
+#define DI_ENABLE 4
+#define DI_VIRT_W 6
+#define DI_VIRT_H 7
+#define DI_XOFF 8
+#define DI_YOFF 9
+#define DI_VRAM64K 0xA
+
+static uint16_t di_r(int i) { outw(DISPI_INDEX, (uint16_t)i); return inw(DISPI_DATA); }
+static void di_w(int i, uint16_t v) { outw(DISPI_INDEX, (uint16_t)i); outw(DISPI_DATA, v); }
+
+static const int mode_table[][2] = {
+    { 800, 600 }, { 1024, 768 }, { 1280, 720 }, { 1280, 800 }, { 1366, 768 },
+    { 1440, 900 }, { 1600, 900 }, { 1920, 1080 },
+};
+
+static int dispi_state = -1;            /* -1 unknown, 0 absent, 1 present */
+static uint32_t dispi_vram;
+
+static bool dispi_present(void)
+{
+    if (dispi_state >= 0)
+        return dispi_state == 1;
+    dispi_state = 0;
+    if (!ready)
+        return false;
+    struct pci_device list[64];
+    int n = pci_scan(list, 64);
+    bool dev = false;
+
+    for (int i = 0; i < n && i < 64; i++)
+        if ((list[i].vendor == 0x1234 && list[i].device == 0x1111) ||
+            (list[i].vendor == 0x80EE && list[i].device == 0xBEEF))
+            dev = true;
+    if (!dev)
+        return false;
+    uint16_t id = di_r(DI_ID);
+    if (id < 0xB0C0 || id > 0xB0CF)
+        return false;
+    dispi_vram = (uint32_t)di_r(DI_VRAM64K) * 65536u;
+    if (dispi_vram < 1024u * 768 * 4)
+        dispi_vram = 16u * 1024 * 1024;     /* register not implemented: QEMU default is 16 MiB */
+    dispi_state = 1;
+    return true;
+}
+
+int gfx_mode_count(void)
+{
+    if (!dispi_present() || boot_has_arg("nomodeset"))
+        return 0;
+    int n = 0;
+    for (unsigned i = 0; i < ARRAY_SIZE(mode_table); i++)
+        if ((uint32_t)mode_table[i][0] * (uint32_t)mode_table[i][1] * 4 <= dispi_vram)
+            n++;
+    return n;
+}
+
+void gfx_mode_at(int index, int *w, int *h)
+{
+    int n = 0;
+
+    for (unsigned i = 0; i < ARRAY_SIZE(mode_table); i++)
+        if ((uint32_t)mode_table[i][0] * (uint32_t)mode_table[i][1] * 4 <= dispi_vram) {
+            if (n++ == index) {
+                *w = mode_table[i][0];
+                *h = mode_table[i][1];
+                return;
+            }
+        }
+    *w = *h = 0;
+}
+
+static void di_program(int w, int h)
+{
+    di_w(DI_ENABLE, 0);
+    di_w(DI_XRES, (uint16_t)w);
+    di_w(DI_YRES, (uint16_t)h);
+    di_w(DI_BPP, 32);
+    di_w(DI_VIRT_W, (uint16_t)w);
+    di_w(DI_XOFF, 0);
+    di_w(DI_YOFF, 0);
+    di_w(DI_ENABLE, 0x01 | 0x40);               /* enabled + linear framebuffer */
+}
+
+bool gfx_set_mode(int w, int h)
+{
+    if (!ready || gfx_mode_count() == 0)
+        return false;
+    if ((uint32_t)w * (uint32_t)h * 4 > dispi_vram)
+        return false;
+    if (w == screen.w && h == screen.h)
+        return true;
+    uint32_t pages = ((uint32_t)w * (uint32_t)h * 4 + PAGE_SIZE - 1) / PAGE_SIZE;
+    paddr_t nb = pmm_alloc_contiguous(pages);
+    if (!nb)
+        return false;
+    int ow = screen.w, oh = screen.h;
+
+    di_program(w, h);
+    if (di_r(DI_XRES) != w || di_r(DI_YRES) != h) {             /* refused: go back */
+        di_program(ow, oh);
+        pmm_free_pages(nb, pages);
+        return false;
+    }
+    if (vmm_enabled())
+        vmm_map_range((vaddr_t)(uint32_t)boot_info.fb.addr, (paddr_t)boot_info.fb.addr,
+                      ((uint32_t)w * (uint32_t)h * 4 + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1),
+                      VMM_WRITE | VMM_NOCACHE);
+    memset((void *)nb, 0, (size_t)pages * PAGE_SIZE);
+    paddr_t old = back_addr;
+    uint32_t oldpages = back_pages;
+    gfx_surface_init(&screen, (uint32_t *)nb, w, h);
+    back_addr = nb;
+    back_pages = pages;
+    pmm_free_pages(old, oldpages);
+    fb_pitch = (uint32_t)w * 4;
+    fb_bpp = 32;
+    set_format(1);
+    update_fast();
+    boot_info.fb.width = (uint32_t)w;
+    boot_info.fb.height = (uint32_t)h;
+    boot_info.fb.pitch = fb_pitch;
+    boot_info.fb.bpp = 32;
+    log_info("gfx", "resolution changed to %dx%d", w, h);
+    return true;
 }

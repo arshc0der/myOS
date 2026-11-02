@@ -72,19 +72,31 @@ static void settings_draw(struct gui_window *w)
         gfx_text(s, X0, 154, "mice and touchpads.", gui_th->dim, GFX_TRANSPARENT, 1);
         break;
     }
-    case 2:
+    case 2: {
+        int nm = gui_mode_count();
         ksnprintf(line, sizeof line, "%d x %d pixels", gui_screen_w(), gui_screen_h());
-        heading(s, 64, "Resolution");
-        gfx_text(s, X0, 80, line, gui_th->text, GFX_TRANSPARENT, 2);
-        gfx_text(s, X0, 130, "The boot loader picks the screen size.", gui_th->dim, GFX_TRANSPARENT, 1);
-        gfx_text(s, X0, 144, "To change it, restart and open", gui_th->dim, GFX_TRANSPARENT, 1);
-        gfx_text(s, X0, 158, "\"Display resolution\" in the boot menu.", gui_th->dim, GFX_TRANSPARENT, 1);
+        heading(s, 54, "Resolution");
+        gfx_text(s, X0, 70, line, gui_th->text, GFX_TRANSPARENT, 2);
+        if (nm > 0) {
+            for (int i = 0; i < nm; i++) {
+                int mw, mh;
+                gui_mode_at(i, &mw, &mh);
+                ksnprintf(line, sizeof line, "%d x %d", mw, mh);
+                gui_button(s, X0 + (i % 2) * 152, 100 + (i / 2) * 32, 144, 26, line,
+                           mw == gui_screen_w() && mh == gui_screen_h());
+            }
+        } else {
+            gfx_text(s, X0, 108, "This computer cannot change the resolution", gui_th->dim, GFX_TRANSPARENT, 1);
+            gfx_text(s, X0, 122, "while running. Restart and open", gui_th->dim, GFX_TRANSPARENT, 1);
+            gfx_text(s, X0, 136, "\"Display resolution\" in the boot menu.", gui_th->dim, GFX_TRANSPARENT, 1);
+        }
         {
             const char *f[] = { "Auto", "RGB", "BGR" };
-            heading(s, 196, "Colour order (use if colours look wrong)");
-            gui_segment(s, X0, 212, SEGW, f, 3, gui_prefs.pixfmt);
+            heading(s, 250, "Colour order (use if colours look wrong)");
+            gui_segment(s, X0, 266, SEGW, f, 3, gui_prefs.pixfmt);
         }
         break;
+    }
     case 3: {
         heading(s, 64, "USB devices");
         int y = 84, n = 0;
@@ -135,9 +147,18 @@ static void settings_click(struct gui_window *w, int x, int y, int buttons)
             }
         } else if (st->page == 1 && y >= 80 && y < 106) {
             gui_prefs.ptr_speed = (x - X0) / (SEGW / 3);
-        } else if (st->page == 2 && y >= 212 && y < 238) {
+        } else if (st->page == 2 && y >= 266 && y < 292) {
             gui_prefs.pixfmt = (x - X0) / (SEGW / 3);
             gfx_set_pixel_format(gui_prefs.pixfmt);
+        }
+    }
+    if (st->page == 2 && y >= 100 && x >= X0) {
+        int col = (x - X0) / 152, row = (y - 100) / 32;
+        int i = row * 2 + col;
+        if (col < 2 && (y - 100) % 32 < 26 && i < gui_mode_count()) {
+            int mw, mh;
+            gui_mode_at(i, &mw, &mh);
+            gui_set_resolution(mw, mh);
         }
     }
     gui_redraw();

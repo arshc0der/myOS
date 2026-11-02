@@ -55,11 +55,11 @@ iso: kernel.elf
 	@echo "Built myos.iso"
 
 run: iso
-	qemu-system-i386 -cdrom myos.iso -m 128M -serial stdio
+	qemu-system-i386 -cdrom myos.iso -m 128M -serial stdio -vga std -device qemu-xhci -device usb-tablet
 
 run-uefi: iso
 	@echo "Needs OVMF firmware; see docs/BUILDING.md"
-	qemu-system-x86_64 -cdrom myos.iso -m 256M -serial stdio -bios $(OVMF)
+	qemu-system-x86_64 -cdrom myos.iso -m 256M -serial stdio -bios $(OVMF) -vga std -device qemu-xhci -device usb-tablet
 
 test:
 	$(MAKE) -C tests/host

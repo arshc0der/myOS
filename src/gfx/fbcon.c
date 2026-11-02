@@ -45,6 +45,20 @@ static bool setup(void)
     return true;
 }
 
+/* The screen size changed (gfx_set_mode): rebuild the text grid. */
+void fbcon_resize(void)
+{
+    if (ready) {
+        tg_free(&tg);
+        ready = false;
+    }
+    if (setup()) {
+        tg_clear(&tg);
+        gfx_fill_rect(gfx_screen(), 0, 0, gfx_width(), gfx_height(), GFX_BLACK);
+        gfx_flush_all();
+    }
+}
+
 static void fb_clear(void)
 {
     if (!setup())

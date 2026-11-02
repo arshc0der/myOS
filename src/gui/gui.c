@@ -49,11 +49,31 @@ static bool running, animating, need_redraw;
 static bool ptr_mode;
 
 /* menus */
-enum { M_NONE, M_APPLE };
+enum { M_NONE, M_APPLE, M_APP, M_POPUP };
 static int menu_open;
-struct mitem { char label[32]; int code; };      /* code: >=0 open app, <0 special, -9 separator */
-static struct mitem mitems[MAX_APPS + 8];
+struct mitem { char label[32]; int code; bool dis; };   /* code: >=0 open app, <0 special, -9 separator */
+static struct mitem mitems[MAX_APPS + 8];               /* the MyOS (Apple) menu */
 static int nmitems;
+/* the dropdown that is open right now: MyOS menu, an app menu from the menu bar, or a popup */
+static struct {
+    struct mitem it[MAX_APPS + 8];
+    int n, x, y, w;
+    int owner;                                           /* window index, -1 = the system menu */
+    int which;                                           /* which app menu (M_APP) */
+} dd;
+static int appmenu_x[8], appmenu_w[8];                  /* title rectangles in the menu bar */
+
+/* modal dialog (prompt / confirm / alert) */
+static struct {
+    bool open;
+    int kind;                                            /* 0 prompt, 1 confirm, 2 alert */
+    int owner, id;
+    char title[40], msg[96], text[64];
+} dlg;
+
+/* clipboard */
+static char clip[256];
+static int clip_kind;
 #define MI_QUIT -1
 #define MI_RESTART -2
 #define MI_SHUTDOWN -3
@@ -112,7 +132,13 @@ static void bring_to_front(int idx)
     zorder[nz - 1] = idx;
 }
 
-static struct gui_window *focused(void) { return nz ? &wins[zorder[nz - 1]] : NULL; }
+static struct gui_window *focused(void)
+{
+    for (int i = nz - 1; i >= 0; i--)
+        if (!wins[zorder[i]].minimized)
+            return &wins[zorder[i]];
+    return NULL;
+}
 
 void gui_set_title(struct gui_window *w, const char *t) { strlcpy(w->title, t, sizeof w->title); }
 
@@ -275,6 +301,14 @@ static void launch(const struct gui_app *a)
         for (int i = 0; i < ndock; i++)
             if (apps[dock_idx[i]] == a)
                 dock_bounce[i] = timer_ticks() | 1;
+    for (int i = 0; i < MAX_WINDOWS; i++)
+        if (wins[i].used && wins[i].app == a && wins[i].minimized && !wins[i].want_close) {
+            wins[i].minimized = false;                 /* bring a hidden window back */
+            bring_to_front(i);
+            wins[i].born = timer_ticks();
+            gui_redraw();
+            return;
+        }
     gui_open(a);
 }
 
@@ -404,13 +438,91 @@ static void build_menu(void)
 #undef ADD
 }
 
+static void dd_close(void) { menu_open = M_NONE; dd.n = 0; }
+
+static void dd_add(const char *label, int code)
+{
+    if (dd.n >= (int)ARRAY_SIZE(dd.it))
+        return;
+    struct mitem *m = &dd.it[dd.n++];
+    m->dis = false;
+    if (!label || !strcmp(label, "-")) {
+        m->label[0] = '\0';
+        m->code = MI_SEP;
+        return;
+    }
+    if (label[0] == '~') {
+        m->dis = true;
+        label++;
+    }
+    strlcpy(m->label, label, sizeof m->label);
+    m->code = code;
+}
+
+static void dd_size(int minw)
+{
+    int w = minw;
+
+    for (int i = 0; i < dd.n; i++)
+        w = MAX(w, gfx_text_width(dd.it[i].label, 1) + 44);
+    dd.w = w;
+    if (dd.x + dd.w > sw - 4)
+        dd.x = MAX(4, sw - 4 - dd.w);
+    int hh = 10;
+    for (int i = 0; i < dd.n; i++)
+        hh += dd.it[i].code == MI_SEP ? 9 : MENU_ITEM_H;
+    if (dd.y + hh > sh - 4)
+        dd.y = MAX(MENUBAR_H, sh - 4 - hh);
+}
+
+static void open_apple_menu(void)
+{
+    dd.n = 0;
+    dd.owner = -1;
+    dd.x = 8;
+    dd.y = MENUBAR_H + 2;
+    for (int i = 0; i < nmitems; i++) {
+        dd_add(mitems[i].code == MI_SEP ? "-" : mitems[i].label, mitems[i].code);
+    }
+    dd_size(MENU_W);
+    menu_open = M_APPLE;
+}
+
+static void open_app_menu(struct gui_window *w, int which)
+{
+    const struct gui_menu *m = &w->app->menus[which];
+
+    dd.n = 0;
+    dd.owner = win_index(w);
+    dd.which = which;
+    dd.x = appmenu_x[which];
+    dd.y = MENUBAR_H + 2;
+    for (int i = 0; i < m->n; i++)
+        dd_add(m->items[i].label, m->items[i].id);
+    dd_size(170);
+    menu_open = M_APP;
+}
+
+void gui_popup(struct gui_window *w, int x, int y, const struct gui_menu_item *items, int n)
+{
+    dd.n = 0;
+    dd.owner = win_index(w);
+    dd.x = w->x + 1 + x;
+    dd.y = w->y + TITLE_H + y;
+    for (int i = 0; i < n; i++)
+        dd_add(items[i].label, items[i].id);
+    dd_size(170);
+    menu_open = M_POPUP;
+    gui_redraw();
+}
+
 static void menu_rect(int *x, int *y, int *w, int *h)
 {
     int hh = 10;
 
-    for (int i = 0; i < nmitems; i++)
-        hh += mitems[i].code == MI_SEP ? 9 : MENU_ITEM_H;
-    *x = 8; *y = MENUBAR_H + 2; *w = MENU_W; *h = hh;
+    for (int i = 0; i < dd.n; i++)
+        hh += dd.it[i].code == MI_SEP ? 9 : MENU_ITEM_H;
+    *x = dd.x; *y = dd.y; *w = dd.w; *h = hh;
 }
 
 static void draw_menu(struct gfx_surface *s)
@@ -418,20 +530,21 @@ static void draw_menu(struct gfx_surface *s)
     int x, y, w, h;
 
     menu_rect(&x, &y, &w, &h);
-    gfx_fill_round_rect(s, x + 2, y + 4, w, h, 10, gfx_blend(gfx_get_pixel(s, x + 4, y + h + 6), GFX_BLACK, 40));
+    gfx_fill_round_rect(s, x + 2, y + 4, w, h, 10, gfx_blend(gfx_get_pixel(s, x + 4, MIN(sh - 1, y + h + 6)), GFX_BLACK, 40));
     gfx_fill_round_rect(s, x - 1, y - 1, w + 2, h + 2, 11, gui_th->line);
     gfx_fill_round_rect(s, x, y, w, h, 10, gui_th->menu);
     int iy = y + 5;
-    for (int i = 0; i < nmitems; i++) {
-        if (mitems[i].code == MI_SEP) {
+    for (int i = 0; i < dd.n; i++) {
+        if (dd.it[i].code == MI_SEP) {
             gfx_hline(s, x + 12, iy + 4, w - 24, gui_th->line);
             iy += 9;
             continue;
         }
-        bool hot = mx >= x && mx < x + w && my >= iy && my < iy + MENU_ITEM_H;
+        bool hot = !dd.it[i].dis && mx >= x && mx < x + w && my >= iy && my < iy + MENU_ITEM_H;
         if (hot)
             gfx_fill_round_rect(s, x + 5, iy, w - 10, MENU_ITEM_H - 2, 6, gui_th->accent);
-        gfx_text(s, x + 16, iy + 9, mitems[i].label, hot ? gui_th->accent_fg : gui_th->text, GFX_TRANSPARENT, 1);
+        gfx_text(s, x + 16, iy + 9, dd.it[i].label,
+                 dd.it[i].dis ? gui_th->dim : (hot ? gui_th->accent_fg : gui_th->text), GFX_TRANSPARENT, 1);
         iy += MENU_ITEM_H;
     }
 }
@@ -444,10 +557,10 @@ static int menu_hit(int px, int py)
     if (px < x || px >= x + w || py < y || py >= y + h)
         return -2;
     int iy = y + 5;
-    for (int i = 0; i < nmitems; i++) {
-        int ih = mitems[i].code == MI_SEP ? 9 : MENU_ITEM_H;
+    for (int i = 0; i < dd.n; i++) {
+        int ih = dd.it[i].code == MI_SEP ? 9 : MENU_ITEM_H;
         if (py >= iy && py < iy + ih)
-            return mitems[i].code == MI_SEP ? -2 : i;
+            return (dd.it[i].code == MI_SEP || dd.it[i].dis) ? -3 : i;
         iy += ih;
     }
     return -2;
@@ -455,9 +568,16 @@ static int menu_hit(int px, int py)
 
 static void menu_action(int i)
 {
-    int code = mitems[i].code;
+    int code = dd.it[i].code, owner = dd.owner;
 
-    menu_open = M_NONE;
+    dd_close();
+    if (owner >= 0) {                                   /* an app menu or a popup */
+        struct gui_window *w = &wins[owner];
+        if (w->used && w->app->command)
+            w->app->command(w, code);
+        gui_redraw();
+        return;
+    }
     if (code >= 0)
         launch(apps[code]);
     else if (code == MI_QUIT)
@@ -472,13 +592,26 @@ static void draw_menubar(struct gfx_surface *s)
 {
     gfx_fill_rect_alpha(s, 0, 0, sw, MENUBAR_H, gui_th->menu, 225);
     gfx_hline(s, 0, MENUBAR_H - 1, sw, gui_th->line);
-    if (menu_open)
+    if (menu_open == M_APPLE)
         gfx_fill_round_rect(s, 4, 3, 36, MENUBAR_H - 6, 6, gui_th->sel);
     gfx_draw_logo(s, 14, 6, 16);
     struct gui_window *f = focused();
     const char *name = f ? f->app->name : "Finder";
     gfx_text(s, 52, 10, name, gui_th->text, GFX_TRANSPARENT, 1);      /* bold: draw twice */
     gfx_text(s, 53, 10, name, gui_th->text, GFX_TRANSPARENT, 1);
+    int mxp = 52 + gfx_text_width(name, 1) + 24;
+    for (int i = 0; i < 8; i++)
+        appmenu_w[i] = 0;
+    if (f && f->app->menus)
+        for (int i = 0; i < f->app->nmenus && i < 8; i++) {
+            int tw = gfx_text_width(f->app->menus[i].title, 1);
+            appmenu_x[i] = mxp - 10;
+            appmenu_w[i] = tw + 20;
+            if (menu_open == M_APP && dd.which == i)
+                gfx_fill_round_rect(s, mxp - 10, 3, tw + 20, MENUBAR_H - 6, 6, gui_th->sel);
+            gfx_text(s, mxp, 10, f->app->menus[i].title, gui_th->text, GFX_TRANSPARENT, 1);
+            mxp += tw + 24;
+        }
     if (ptr_mode)
         gfx_text(s, sw / 2 - 150, 10, "POINTER MODE: arrows move, Enter clicks, F2/Esc exits",
                  gui_th->dim, GFX_TRANSPARENT, 1);
@@ -493,6 +626,149 @@ static void draw_menubar(struct gfx_surface *s)
     gfx_fill_circle(s, cx, cy, 3, gui_th->menu);
     gfx_line(s, cx + 4, cy + 4, cx + 8, cy + 8, gui_th->text);
     gfx_line(s, cx + 5, cy + 4, cx + 9, cy + 8, gui_th->text);
+}
+
+/* ---- dialogs ---- */
+
+#define DLG_W 380
+static void dlg_rect(int *x, int *y, int *w, int *h)
+{
+    *w = DLG_W;
+    *h = dlg.kind == 0 ? 150 : 130;
+    *x = (sw - *w) / 2;
+    *y = MAX(MENUBAR_H + 20, sh / 3 - *h / 2);
+}
+
+static void dlg_start(struct gui_window *w, int kind, const char *title, const char *msg, const char *text, int id)
+{
+    dlg.open = true;
+    dlg.kind = kind;
+    dlg.owner = win_index(w);
+    dlg.id = id;
+    strlcpy(dlg.title, title ? title : "", sizeof dlg.title);
+    strlcpy(dlg.msg, msg ? msg : "", sizeof dlg.msg);
+    strlcpy(dlg.text, text ? text : "", sizeof dlg.text);
+    dd_close();
+    spot_open = false;
+    gui_redraw();
+}
+
+void gui_prompt(struct gui_window *w, const char *title, const char *initial, int id)
+{
+    dlg_start(w, 0, title, "", initial, id);
+}
+
+void gui_confirm(struct gui_window *w, const char *title, const char *message, int id)
+{
+    dlg_start(w, 1, title, message, "", id);
+}
+
+void gui_alert(struct gui_window *w, const char *title, const char *message)
+{
+    dlg_start(w, 2, title, message, "", -1);
+}
+
+static void dlg_finish(bool ok)
+{
+    struct gui_window *w = dlg.owner >= 0 ? &wins[dlg.owner] : NULL;
+    int id = dlg.id;
+    char text[64];
+
+    strlcpy(text, dlg.text, sizeof text);
+    dlg.open = false;
+    if (w && w->used && w->app->dialog && dlg.kind != 2)
+        w->app->dialog(w, id, ok, text);
+    gui_redraw();
+}
+
+static void draw_dialog(struct gfx_surface *s)
+{
+    int x, y, w, h;
+
+    dlg_rect(&x, &y, &w, &h);
+    gfx_fill_rect_alpha(s, 0, MENUBAR_H, sw, sh - MENUBAR_H, GFX_BLACK, 70);
+    gfx_fill_round_rect(s, x + 3, y + 8, w, h, 14, gfx_blend(gfx_get_pixel(s, x + 10, MIN(sh - 1, y + h + 10)), GFX_BLACK, 60));
+    gfx_fill_round_rect(s, x - 1, y - 1, w + 2, h + 2, 15, gui_th->line);
+    gfx_fill_round_rect(s, x, y, w, h, 14, gui_th->win);
+    gfx_text(s, x + 20, y + 18, dlg.title, gui_th->text, GFX_TRANSPARENT, 2);
+    if (dlg.kind == 0) {
+        gui_textfield(s, x + 20, y + 58, w - 40, dlg.text, true);
+    } else {
+        gfx_text(s, x + 20, y + 58, dlg.msg, gui_th->dim, GFX_TRANSPARENT, 1);
+    }
+    int by = y + h - 40;
+    if (dlg.kind != 2)
+        gui_button(s, x + w - 190, by, 80, 28, "Cancel", false);
+    gui_button(s, x + w - 100, by, 80, 28, "OK", true);
+}
+
+static bool dlg_click(int px, int py)
+{
+    int x, y, w, h;
+
+    dlg_rect(&x, &y, &w, &h);
+    int by = y + h - 40;
+    if (gui_hit(px, py, x + w - 100, by, 80, 28))
+        dlg_finish(true);
+    else if (dlg.kind != 2 && gui_hit(px, py, x + w - 190, by, 80, 28))
+        dlg_finish(false);
+    return true;
+}
+
+static void dlg_key(int k)
+{
+    int len = (int)strlen(dlg.text);
+
+    if (k == '\n')
+        dlg_finish(true);
+    else if (k == 27)
+        dlg_finish(dlg.kind == 2);
+    else if (dlg.kind == 0 && (k == '\b' || k == 127)) {
+        if (len)
+            dlg.text[len - 1] = '\0';
+    } else if (dlg.kind == 0 && k >= 32 && k < 127 && len < (int)sizeof dlg.text - 2) {
+        dlg.text[len] = (char)k;
+        dlg.text[len + 1] = '\0';
+    }
+    gui_redraw();
+}
+
+/* ---- clipboard ---- */
+
+void gui_clip_set(int kind, const char *text)
+{
+    clip_kind = kind;
+    strlcpy(clip, text ? text : "", sizeof clip);
+}
+int gui_clip_kind(void) { return clip[0] ? clip_kind : GUI_CLIP_TEXT; }
+const char *gui_clip_get(void) { return clip; }
+
+int gui_mode_count(void) { return gfx_mode_count(); }
+void gui_mode_at(int i, int *w, int *h) { gfx_mode_at(i, w, h); }
+
+bool gui_set_resolution(int w, int h)
+{
+    if (!gfx_set_mode(w, h))
+        return false;
+    sw = gfx_width();
+    sh = gfx_height();
+    mx = MAX(0, MIN(sw - 1, mx));
+    my = MAX(0, MIN(sh - 1, my));
+    for (int i = 0; i < MAX_WINDOWS; i++)
+        if (wins[i].used) {
+            wins[i].x = MAX(-wins[i].cw + 60, MIN(sw - 80, wins[i].x));
+            wins[i].y = MAX(MENUBAR_H, MIN(sh - DOCK_RESERVE - 30, wins[i].y));
+        }
+    build_wallpaper();
+    dd_close();
+    gui_redraw();
+    return true;
+}
+
+void gui_minimize(struct gui_window *w)
+{
+    w->minimized = true;
+    gui_redraw();
 }
 
 static void spot_update(void)
@@ -556,7 +832,7 @@ static void spot_toggle(void)
     spot_open = !spot_open;
     spot_q[0] = '\0';
     spot_sel = 0;
-    menu_open = M_NONE;
+    dd_close();
     spot_update();
 }
 
@@ -616,14 +892,18 @@ static void render(void)
         gfx_blit(s, 0, 0, wallpaper, 0, 0, sw, sh);
     else
         gfx_fill_rect(s, 0, 0, sw, sh, gui_th->bg_top);
+    struct gui_window *front = focused();
     for (int i = 0; i < nz; i++)
-        draw_window(s, &wins[zorder[i]], i == nz - 1);
+        if (!wins[zorder[i]].minimized)
+            draw_window(s, &wins[zorder[i]], &wins[zorder[i]] == front);
     draw_dock(s);
     draw_menubar(s);
     if (menu_open)
         draw_menu(s);
     if (spot_open)
         draw_spotlight(s);
+    if (dlg.open)
+        draw_dialog(s);
     draw_cursor(s);
     gfx_flush_all();
 }
@@ -675,14 +955,21 @@ static int hit_window(int x, int y)
 {
     for (int i = nz - 1; i >= 0; i--) {
         struct gui_window *w = &wins[zorder[i]];
-        if (x >= w->x && x < w->x + outer_w(w) && y >= w->y && y < w->y + outer_h(w))
+        if (!w->minimized && x >= w->x && x < w->x + outer_w(w) && y >= w->y && y < w->y + outer_h(w))
             return zorder[i];
     }
     return -1;
 }
 
-static void mouse_click(int x, int y)
+static uint32_t last_click_t;
+static int last_click_x, last_click_y;
+
+static void mouse_click(int x, int y, int btn)
 {
+    if (dlg.open) {
+        dlg_click(x, y);
+        return;
+    }
     if (spot_open) {
         int sx, sy, swd, sht;
         spot_rect(&sx, &sy, &swd, &sht);
@@ -700,18 +987,32 @@ static void mouse_click(int x, int y)
             menu_action(i);
             return;
         }
-        menu_open = M_NONE;
-        if (y >= MENUBAR_H)
+        if (i == -3)                                    /* separator or dimmed item */
+            return;
+        bool popup = menu_open == M_POPUP;
+        dd_close();
+        if (y >= MENUBAR_H && !popup)
+            return;
+        if (popup && y >= MENUBAR_H)
             return;
     }
     if (y < MENUBAR_H) {
-        if (x < 44)
-            menu_open = menu_open ? M_NONE : M_APPLE;
-        else if (x > sw - 90)
+        struct gui_window *f = focused();
+        if (x < 44) {
+            if (menu_open == M_NONE)
+                open_apple_menu();
+        } else if (x > sw - 90) {
             spot_toggle();
+        } else if (f && f->app->menus) {
+            for (int i = 0; i < f->app->nmenus && i < 8; i++)
+                if (appmenu_w[i] && x >= appmenu_x[i] && x < appmenu_x[i] + appmenu_w[i]) {
+                    open_app_menu(f, i);
+                    break;
+                }
+        }
         return;
     }
-    if (ndock) {
+    if (ndock && btn == GUI_BTN_LEFT) {
         int dx, dy, dw, dh;
         dock_rect(&dx, &dy, &dw, &dh);
         if (x >= dx && x < dx + dw && y >= dy - 10 && y < dy + dh) {
@@ -730,9 +1031,13 @@ static void mouse_click(int x, int y)
     bring_to_front(idx);
     int lx = x - w->x, ly = y - w->y;
     if (ly < TITLE_H) {
+        if (btn != GUI_BTN_LEFT)
+            return;
         if (lx < 70) {
             if (lx < 28)
                 gui_close(w);
+            else if (lx < 48)
+                gui_minimize(w);
             return;
         }
         drag_idx = idx;
@@ -740,8 +1045,20 @@ static void mouse_click(int x, int y)
         drag_dy = ly;
         return;
     }
+    int b = btn;
+    if (btn == GUI_BTN_LEFT) {                          /* double click = two clicks close together */
+        uint32_t now = timer_ticks();
+        if (now - last_click_t < 40 && (x - last_click_x) * (x - last_click_x) < 36 && (y - last_click_y) * (y - last_click_y) < 36) {
+            b |= GUI_BTN_DOUBLE;
+            last_click_t = 0;
+        } else {
+            last_click_t = now;
+            last_click_x = x;
+            last_click_y = y;
+        }
+    }
     if (w->app->click)
-        w->app->click(w, lx - 1, ly - TITLE_H, 1);
+        w->app->click(w, lx - 1, ly - TITLE_H, b);
 }
 
 static void handle_mouse(const struct input_event *ev)
@@ -760,9 +1077,12 @@ static void handle_mouse(const struct input_event *ev)
         my = MAX(0, MIN(sh - 1, my + ay * mult[sp] / 2));
     }
     bool left_now = ev->buttons & MOUSE_LEFT, left_before = mbuttons & MOUSE_LEFT;
+    bool right_now = ev->buttons & MOUSE_RIGHT, right_before = mbuttons & MOUSE_RIGHT;
 
     if (left_now && !left_before)
-        mouse_click(mx, my);
+        mouse_click(mx, my, GUI_BTN_LEFT);
+    if (right_now && !right_before)
+        mouse_click(mx, my, GUI_BTN_RIGHT);
     if (!left_now)
         drag_idx = -1;
     if (left_now && drag_idx >= 0 && wins[drag_idx].used) {
@@ -782,11 +1102,15 @@ static void handle_key(const struct input_event *ev)
 {
     int k = ev->key;
 
+    if (dlg.open) {
+        dlg_key(k);
+        return;
+    }
     if (ev->mods & MOD_ALT) {
         if (k == ' ') { spot_toggle(); return; }
         if (k == '\t') { cycle_windows(); return; }
         if (k == 'q' || k == 'Q') { gui_quit(); return; }
-        if (k == 'm' || k == 'M') { menu_open = menu_open ? M_NONE : M_APPLE; return; }
+        if (k == 'm' || k == 'M') { if (menu_open) dd_close(); else open_apple_menu(); return; }
         if (k == 'w' || k == 'W' || k == KEY_F(4)) {
             if (focused())
                 gui_close(focused());
@@ -798,7 +1122,7 @@ static void handle_key(const struct input_event *ev)
         case KEY_RIGHT: mx = MIN(sw - 1, mx + step); return;
         case KEY_UP:    my = MAX(0, my - step); return;
         case KEY_DOWN:  my = MIN(sh - 1, my + step); return;
-        case '\n':      mouse_click(mx, my); return;
+        case '\n':      mouse_click(mx, my, GUI_BTN_LEFT); return;
         }
         if (k >= '1' && k <= '9' && k - '1' < ndock) {      /* Alt+1.. = dock position */
             launch(apps[dock_idx[k - '1']]);
@@ -824,13 +1148,13 @@ static void handle_key(const struct input_event *ev)
         case KEY_RIGHT: mx = MIN(sw - 1, mx + step); return;
         case KEY_UP:    my = MAX(0, my - step); return;
         case KEY_DOWN:  my = MIN(sh - 1, my + step); return;
-        case '\n': case ' ': mouse_click(mx, my); return;
+        case '\n': case ' ': mouse_click(mx, my, GUI_BTN_LEFT); return;
         case 27: ptr_mode = false; return;
         }
     }
     if (menu_open) {
         if (k == 27)
-            menu_open = M_NONE;
+            dd_close();
         return;
     }
     struct gui_window *w = focused();
@@ -857,12 +1181,22 @@ static void guitest_task(void *arg)
         timer_sleep_ms(100);
     }
     timer_sleep_ms(800);
-    ev = (struct input_event){ .type = INPUT_KEY, .key = 'f', .mods = MOD_ALT };
-    input_push(&ev);
-    timer_sleep_ms(500);
-    ev = (struct input_event){ .type = INPUT_KEY, .key = 's', .mods = MOD_ALT };
-    input_push(&ev);
-    timer_sleep_ms(1500);
+#define KEYEV(k, m) do { ev = (struct input_event){ .type = INPUT_KEY, .key = (k), .mods = (m) }; \
+                         input_push(&ev); timer_sleep_ms(300); } while (0)
+    KEYEV('f', MOD_ALT);                                /* Files */
+    KEYEV(14, MOD_CTRL);                                /* Ctrl+N: new folder dialog */
+    for (const char *c = "docs\n"; *c; c++)
+        KEYEV(*c, 0);
+    KEYEV(3, MOD_CTRL);                                 /* copy */
+    KEYEV(22, MOD_CTRL);                                /* paste -> "docs copy" */
+    KEYEV(' ', MOD_ALT);                                /* Spotlight: Task Manager */
+    for (const char *c = "task\n"; *c; c++)
+        KEYEV(*c, 0);
+    if (boot_has_arg("guires")) {
+        gui_set_resolution(1280, 720);
+        timer_sleep_ms(500);
+    }
+    timer_sleep_ms(1200);
     if (boot_has_arg("fbdump"))
         gfx_dump_serial();
     ev = (struct input_event){ .type = INPUT_KEY, .key = 'q', .mods = MOD_ALT };
@@ -880,6 +1214,8 @@ void gui_run(void)
     memset(wins, 0, sizeof wins);
     nz = 0;
     menu_open = M_NONE;
+    dlg.open = false;
+    dd.n = 0;
     spot_open = false;
     ptr_mode = false;
     running = true;

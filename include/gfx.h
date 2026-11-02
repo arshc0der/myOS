@@ -34,6 +34,9 @@ int  gfx_width(void);
 int  gfx_height(void);
 void gfx_flush(int x, int y, int w, int h);     /* copy a region to the display */
 void gfx_flush_all(void);
+int  gfx_mode_count(void);              /* 0 = this machine cannot change resolution at run time */
+void gfx_mode_at(int index, int *w, int *h);
+bool gfx_set_mode(int w, int h);        /* VMs only; the caller must redraw everything afterwards */
 void gfx_set_pixel_format(int mode);   /* 0 auto, 1 RGB, 2 BGR (fixes wrong colours) */
 /* Read a pixel back from the real display memory (for tests/screenshots). */
 uint32_t gfx_display_pixel(int x, int y);

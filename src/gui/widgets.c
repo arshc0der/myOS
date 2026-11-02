@@ -103,3 +103,73 @@ void gui_label_center(struct gfx_surface *s, int x, int y, int w, const char *te
 {
     gfx_text(s, x + (w - gfx_text_width(text, 1)) / 2, y, text, col, GFX_TRANSPARENT, 1);
 }
+
+bool gui_hit(int px, int py, int x, int y, int w, int h)
+{
+    return px >= x && px < x + w && py >= y && py < y + h;
+}
+
+void gui_textfield(struct gfx_surface *s, int x, int y, int w, const char *text, bool focus)
+{
+    gfx_fill_round_rect(s, x, y, w, 24, 6, focus ? gui_th->accent : gui_th->line);
+    gfx_fill_round_rect(s, x + 1, y + 1, w - 2, 22, 5, gui_th->win);
+    gfx_text(s, x + 8, y + 8, text, gui_th->text, GFX_TRANSPARENT, 1);
+    if (focus)
+        gfx_fill_rect(s, x + 8 + gfx_text_width(text, 1), y + 5, 1, 14, gui_th->text);
+}
+
+void gui_toolbar_button(struct gfx_surface *s, int x, int y, int w, int h, const char *label, bool enabled)
+{
+    gfx_fill_round_rect(s, x, y, w, h, 6, gui_th->line);
+    gfx_fill_round_rect(s, x + 1, y + 1, w - 2, h - 2, 5, gui_th->win);
+    gfx_text(s, x + (w - gfx_text_width(label, 1)) / 2, y + (h - 8) / 2, label,
+             enabled ? gui_th->text : gui_th->dim, GFX_TRANSPARENT, 1);
+}
+
+void gui_scrollbar(struct gfx_surface *s, int x, int y, int h, int total, int visible, int top)
+{
+    if (total <= visible || total <= 0)
+        return;
+    int th = MAX(h * visible / total, 20);
+    int ty = y + (h - th) * top / MAX(total - visible, 1);
+
+    gfx_fill_round_rect(s, x, ty, 5, th, 2, gui_th->dim);
+}
+
+static bool ext_is(const char *name, const char *ext)
+{
+    const char *d = strrchr(name, '.');
+
+    return d && strcmp(d + 1, ext) == 0;
+}
+
+/* A folder or a document, drawn with the theme colours. */
+void gui_file_icon(struct gfx_surface *s, int x, int y, int sz, int kind, const char *name)
+{
+#define P(f) ((sz * (f)) / 100)
+    uint32_t fg = gui_th->accent == gui_th->text ? gui_th->dim : gui_th->accent;
+
+    if (kind == 2) {                                    /* VFS_DIR */
+        gfx_fill_round_rect(s, x + P(6), y + P(16), P(34), P(18), P(6), fg);
+        gfx_fill_round_rect(s, x + P(4), y + P(26), P(92), P(60), P(10), fg);
+        gfx_fill_rect(s, x + P(4), y + P(40), P(92), MAX(P(3), 1), gfx_blend(fg, GFX_WHITE, 70));
+        return;
+    }
+    int dx = x + P(16), dy = y + P(6), dw = P(68), dh = P(88);
+    gfx_fill_round_rect(s, dx - 1, dy - 1, dw + 2, dh + 2, P(8), gui_th->line);
+    gfx_fill_round_rect(s, dx, dy, dw, dh, P(8), gui_th->win);
+    gfx_fill_rect(s, dx + dw - P(22), dy, P(22), P(22), gui_th->line);
+    const char *tag = NULL;
+    if (ext_is(name, "txt") || ext_is(name, "md"))
+        tag = "TXT";
+    else if (ext_is(name, "c") || ext_is(name, "h"))
+        tag = "C";
+    else if (ext_is(name, "bin") || ext_is(name, "img"))
+        tag = "BIN";
+    if (tag && sz >= 40)
+        gfx_text(s, dx + (dw - gfx_text_width(tag, 1)) / 2, dy + dh / 2, tag, fg, GFX_TRANSPARENT, 1);
+    else
+        for (int i = 0; i < 3; i++)
+            gfx_fill_rect(s, dx + P(12), dy + P(34) + i * P(14), dw - P(24), MAX(P(4), 1), gui_th->dim);
+#undef P
+}

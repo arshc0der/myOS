@@ -8,5 +8,6 @@ bool fbcon_available(void);
 /* Size of the text grid (for the shell) */
 int  fbcon_cols(void);
 int  fbcon_rows(void);
+void fbcon_resize(void);        /* call after the screen size changed */
 
 #endif

@@ -60,6 +60,24 @@ void gui_refresh_theme(void);       /* apply + repaint everything */
 
 struct gui_window;
 
+/* ---- menus ---- */
+/* An item of a menu or popup. label "-" (or NULL) is a separator; a label that
+ * starts with '~' is shown dimmed and cannot be chosen. `id` is handed to the
+ * app's command() callback. */
+struct gui_menu_item { const char *label; int id; };
+/* A menu shown in the menu bar while the app's window is in front. */
+struct gui_menu { const char *title; const struct gui_menu_item *items; int n; };
+
+/* click() `buttons` bits */
+#define GUI_BTN_LEFT   1
+#define GUI_BTN_RIGHT  2
+#define GUI_BTN_DOUBLE 4                /* set together with LEFT on a double click */
+
+/* clipboard kinds */
+#define GUI_CLIP_TEXT       0
+#define GUI_CLIP_FILES_COPY 1           /* text = a path                  */
+#define GUI_CLIP_FILES_CUT  2
+
 struct gui_app {
     const char *name;               /* dock label and menu entry       */
     const char *title;              /* window title (NULL = name)      */
@@ -76,6 +94,12 @@ struct gui_app {
     void (*key)(struct gui_window *w, int key, int mods);     /* keyboard (focused)    */
     void (*click)(struct gui_window *w, int x, int y, int buttons);  /* x,y inside client */
     void (*tick)(struct gui_window *w);                       /* about 10 times a second */
+    /* Menus in the menu bar (File, Edit, ...) and the callback that receives the chosen id. */
+    const struct gui_menu *menus;
+    int nmenus;
+    void (*command)(struct gui_window *w, int id);
+    /* Result of gui_prompt / gui_confirm / gui_alert: ok = OK pressed, text = typed text. */
+    void (*dialog)(struct gui_window *w, int id, bool ok, const char *text);
     /* Draw the icon glyph into a (sz x sz) square at x,y. `fg` is the glyph colour. */
     void (*icon)(struct gfx_surface *s, int x, int y, int sz, uint32_t fg, uint32_t bg);
 };
@@ -89,6 +113,7 @@ struct gui_window {
     struct gfx_surface *surf;       /* draw here                       */
     uint32_t born;                  /* tick when opened                */
     bool want_close;
+    bool minimized;
     void *priv;                     /* the app's own data              */
 };
 
@@ -108,12 +133,36 @@ void  gui_set_dark(bool dark);
 void  gui_quit(void);                           /* leave the desktop           */
 int   gui_app_count(void);
 const struct gui_app *gui_app_at(int i);
+void  gui_minimize(struct gui_window *w);
+
+/* Popup (right-click) menu at client position x,y of window w. The items are copied. */
+void  gui_popup(struct gui_window *w, int x, int y, const struct gui_menu_item *items, int n);
+/* Dialogs. The answer arrives in the app's dialog() callback with the same id. */
+void  gui_prompt(struct gui_window *w, const char *title, const char *initial, int id);
+void  gui_confirm(struct gui_window *w, const char *title, const char *message, int id);
+void  gui_alert(struct gui_window *w, const char *title, const char *message);
+
+/* Clipboard shared by all apps (text up to 255 characters, or a file path). */
+void  gui_clip_set(int kind, const char *text);
+int   gui_clip_kind(void);
+const char *gui_clip_get(void);                 /* "" when empty */
+
+/* Screen resolution: gui_mode_count()==0 means this machine cannot change it at run time. */
+int   gui_mode_count(void);
+void  gui_mode_at(int i, int *w, int *h);
+bool  gui_set_resolution(int w, int h);
 
 /* ---- small drawing helpers (src/gui/widgets.c) ---- */
 void gui_button(struct gfx_surface *s, int x, int y, int w, int h, const char *label, bool on);
 void gui_segment(struct gfx_surface *s, int x, int y, int w, const char **labels, int n, int active);
 void gui_sidebar_row(struct gfx_surface *s, int x, int y, int w, const char *label, bool sel);
 void gui_label_center(struct gfx_surface *s, int x, int y, int w, const char *text, uint32_t col);
+/* Icons: kind is VFS_DIR / VFS_FILE (see vfs.h); name picks a symbol from the extension. */
+void gui_file_icon(struct gfx_surface *s, int x, int y, int sz, int kind, const char *name);
+void gui_scrollbar(struct gfx_surface *s, int x, int y, int h, int total, int visible, int top);
+void gui_textfield(struct gfx_surface *s, int x, int y, int w, const char *text, bool focus);
+void gui_toolbar_button(struct gfx_surface *s, int x, int y, int w, int h, const char *label, bool enabled);
+bool gui_hit(int px, int py, int x, int y, int w, int h);       /* point in rectangle */
 
 /* ---- applications that other apps call ---- */
 void notepad_open_file(const char *path);       /* src/gui/apps/notepad.c */
