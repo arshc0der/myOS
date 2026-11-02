@@ -102,15 +102,44 @@ The following list describes the subsystems present in the project source tree. 
 - Student templates for custom initialization, filesystems, and scheduling.
 - Architecture and subsystem documentation.
 
-## Screenshots
+##  MyOS – Graphical Operating System
 
-![MyOS graphical desktop](docs/images/desktop.png)
-![MyOS system information](docs/images/sysinfo.png)
-![MyOS terminal and command output](docs/images/terminal.png)
-![MyOS filesystem browser](docs/images/files.png)
+<p align="center">
+  <img src="docs/images/myos-showcase.gif"
+       alt="MyOS Screenshot Showcase"
+       width="100%">
+</p>
 
+<p align="center">
+  <b>Explore the MyOS desktop experience.</b>
+  <br>
+  Desktop • Terminal • File Manager • Notepad • Task Manager • Settings
+</p>
+
+<!--
+
+## 1. Desktop Environment
+![MyOS Graphical Desktop](docs/images/desktop.png)
+
+## 2. System Information
+![MyOS System Information](docs/images/activity.png)
+
+## 3. Terminal
+![MyOS Terminal and Command Output](docs/images/terminal.png)
+
+## 4. File Manager
+![MyOS Filesystem Browser](docs/images/files.png)
+
+## 5. Notepad
+![MyOS Notepad](docs/images/notepad.png)
+
+## 6. Task Manager
+![MyOS Task Manager](docs/images/task-manager.png)
+
+## 7. System Settings
+![MyOS Settings](docs/images/settings.png)
 ## Getting Started
-
+-->
 ### Requirements
 
 A Linux development environment is recommended.
