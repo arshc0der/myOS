@@ -46,6 +46,9 @@ struct gui_prefs {
     int  accent;                    /* index into the accent colours (6 = graphite / monochrome) */
     int  pixfmt;                    /* 0 auto, 1 RGB, 2 BGR (display colour order) */
     int  ptr_speed;                 /* 0 slow, 1 normal, 2 fast        */
+    bool dock_colorful;             /* coloured dock tiles             */
+    int  dock_size;                 /* dock icon size in pixels (44, 52, 64) */
+    bool show_fps;                  /* frame rate in the menu bar      */
 };
 
 extern const struct gui_theme *gui_th;      /* colours of the current theme */
@@ -57,6 +60,8 @@ extern const char *const gui_accent_name[GUI_ACCENTS];
 uint32_t gui_accent_color(int index, bool dark);   /* swatch colour */
 void gui_theme_apply(void);         /* rebuild gui_th from prefs (dark, accent) */
 void gui_refresh_theme(void);       /* apply + repaint everything */
+void gui_reload_icons(void);        /* re-read custom dock icon pictures (see docs/GUI_API.md) */
+int  gui_fps(void);                 /* frames drawn in the last second */
 
 struct gui_window;
 
@@ -114,6 +119,8 @@ struct gui_window {
     uint32_t born;                  /* tick when opened                */
     bool want_close;
     bool minimized;
+    bool maximized;
+    int rx, ry, rcw, rch;           /* geometry to restore after maximize */
     void *priv;                     /* the app's own data              */
 };
 
@@ -129,6 +136,8 @@ struct gui_window *gui_open_named(const char *name);
 void  gui_close(struct gui_window *w);          /* safe to call from callbacks */
 void  gui_redraw(void);                         /* ask for a new frame         */
 void  gui_set_title(struct gui_window *w, const char *title);
+void  gui_maximize(struct gui_window *w);        /* toggle maximize / restore  */
+void  gui_resize(struct gui_window *w, int cw, int ch);
 void  gui_set_dark(bool dark);
 void  gui_quit(void);                           /* leave the desktop           */
 int   gui_app_count(void);
@@ -164,7 +173,11 @@ void gui_textfield(struct gfx_surface *s, int x, int y, int w, const char *text,
 void gui_toolbar_button(struct gfx_surface *s, int x, int y, int w, int h, const char *label, bool enabled);
 bool gui_hit(int px, int py, int x, int y, int w, int h);       /* point in rectangle */
 
+void  gui_login(void);                          /* first-boot setup / login screen (login.c) */
+
 /* ---- applications that other apps call ---- */
 void notepad_open_file(const char *path);       /* src/gui/apps/notepad.c */
+void photos_open_file(const char *path);        /* src/gui/apps/photos.c  */
+bool gui_set_wallpaper(const char *path);       /* picture as desktop background ("" = default) */
 
 #endif

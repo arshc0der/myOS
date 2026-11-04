@@ -11,6 +11,9 @@
 #include "input.h"
 #include "vfs.h"
 #include "fileops.h"
+#include "sys.h"
+#include "image.h"
+#include "blockdev.h"
 #include "heap.h"
 #include "kerror.h"
 #include "kprintf.h"
@@ -29,7 +32,7 @@ enum {
     C_CUT = 10, C_COPY, C_PASTE,
     C_ICONS = 20, C_LIST, C_REFRESH, C_UP,
 };
-enum { D_NEWDIR = 1, D_NEWFILE, D_RENAME, D_DELETE };
+enum { D_NEWDIR = 1, D_NEWFILE, D_RENAME, D_DELETE, D_FORMAT };
 
 struct files {
     char path[VFS_PATH_MAX];
@@ -39,9 +42,72 @@ struct files {
     bool list_view;
 };
 
-static const struct { const char *label, *path; } places[] = {
-    { "Macintosh HD", "/" }, { "tmp", "/tmp" }, { "mnt", "/mnt" }, { "dev", "/dev" },
-};
+/* ---- sidebar: favorites, then every disk the system knows ---- */
+#define MAX_SIDE 32
+struct side { char label[28]; char path[VFS_PATH_MAX]; char dev[16]; int kind; };   /* kind 0 place, 1 header, 2 disk */
+static struct side sb[MAX_SIDE];
+static int nsb;
+
+static void side_add(int kind, const char *label, const char *path, const char *dev)
+{
+    if (nsb >= MAX_SIDE)
+        return;
+    struct side *e = &sb[nsb++];
+    e->kind = kind;
+    strlcpy(e->label, label, sizeof e->label);
+    strlcpy(e->path, path ? path : "", sizeof e->path);
+    strlcpy(e->dev, dev ? dev : "", sizeof e->dev);
+}
+
+static void side_disk(struct blockdev *d, void *ctx)
+{
+    char label[28];
+    uint32_t mib = d->sector_count / 2048;
+
+    (void)ctx;
+    if (mib >= 1024)
+        ksnprintf(label, sizeof label, "%s %uG", d->name, mib / 1024);
+    else
+        ksnprintf(label, sizeof label, "%s %uM", d->name, mib);
+    side_add(2, label, sys_volume_path(d->name), d->name);
+}
+
+static void side_build(void)
+{
+    static const char *sub[] = { "Desktop", "Documents", "Downloads", "Pictures", "Music" };
+    char p[VFS_PATH_MAX];
+
+    nsb = 0;
+    side_add(1, "Favorites", NULL, NULL);
+    if (users_current()) {
+        side_add(0, users_current()->name, users_home(), NULL);
+        for (unsigned i = 0; i < ARRAY_SIZE(sub); i++) {
+            ksnprintf(p, sizeof p, "%s/%s", users_home(), sub[i]);
+            side_add(0, sub[i], p, NULL);
+        }
+    }
+    side_add(0, "Macintosh HD", "/", NULL);
+    side_add(0, "tmp", "/tmp", NULL);
+    side_add(1, "Disks", NULL, NULL);
+    blockdev_for_each(side_disk, NULL);
+    side_add(0, "dev", "/dev", NULL);
+}
+
+static int side_y(int i)
+{
+    int y = 10;
+    for (int k = 0; k < i; k++)
+        y += sb[k].kind == 1 ? 24 : 26;
+    return y;
+}
+
+static int side_at(int y)
+{
+    for (int i = 0; i < nsb; i++)
+        if (y >= side_y(i) && y < side_y(i) + (sb[i].kind == 1 ? 24 : 26))
+            return i;
+    return -1;
+}
 
 static const struct gui_menu_item file_items[] = {
     { "New Folder", C_NEWDIR }, { "New File", C_NEWFILE }, { "-", 0 },
@@ -198,8 +264,12 @@ static void activate(struct gui_window *w, struct files *f, int i)
     item_path(f, i, p, sizeof p);
     if (f->ent[i].type == VFS_DIR)
         go(f, p);
-    else if (f->ent[i].type == VFS_FILE)
-        notepad_open_file(p);
+    else if (f->ent[i].type == VFS_FILE) {
+        if (image_is_picture(f->ent[i].name))
+            photos_open_file(p);
+        else
+            notepad_open_file(p);
+    }
     gui_redraw();
     (void)w;
 }
@@ -302,6 +372,13 @@ static void files_dialog(struct gui_window *w, int id, bool ok, const char *text
             fail(w, rc == -EEXIST ? "That name is already used" : "Could not rename", rc);
         reselect(f, rc == 0 ? text : fo_basename(f->target));
         break;
+    case D_FORMAT:
+        rc = sys_volume_format(f->target);
+        if (rc < 0)
+            fail(w, "Could not format the disk", rc);
+        else if (sys_volume_path(f->target))
+            go(f, sys_volume_path(f->target));
+        break;
     case D_DELETE: {
         int keep = f->sel;
         rc = fo_remove(f->target);
@@ -349,7 +426,7 @@ static void files_open(struct gui_window *w)
         return;
     }
     w->priv = f;
-    go(f, "/");
+    go(f, users_current() ? users_home() : "/");
 }
 
 static void files_close(struct gui_window *w) { kfree(w->priv); w->priv = NULL; }
@@ -378,9 +455,15 @@ static void files_draw(struct gui_window *w)
     gfx_fill_rect(s, 0, 0, w->cw, w->ch, t->win);
     gfx_fill_rect(s, 0, 0, SIDE_W, w->ch, t->side);
     gfx_vline(s, SIDE_W, 0, w->ch, t->line);
-    gfx_text(s, 14, 12, "Favorites", t->dim, GFX_TRANSPARENT, 1);
-    for (unsigned i = 0; i < ARRAY_SIZE(places); i++)
-        gui_sidebar_row(s, 0, 28 + (int)i * 26, SIDE_W, places[i].label, strcmp(f->path, places[i].path) == 0);
+    side_build();
+    for (int i = 0; i < nsb; i++) {
+        int y = side_y(i);
+        if (sb[i].kind == 1)
+            gfx_text(s, 14, y + 6, sb[i].label, t->dim, GFX_TRANSPARENT, 1);
+        else
+            gui_sidebar_row(s, 0, y, SIDE_W, sb[i].label,
+                            sb[i].path[0] && strcmp(f->path, sb[i].path) == 0);
+    }
 
     /* toolbar */
     gfx_fill_rect(s, SIDE_W + 1, 0, w->cw - SIDE_W - 1, TOOL_H, t->title);
@@ -469,9 +552,19 @@ static void files_click(struct gui_window *w, int x, int y, int buttons)
     bool right = buttons & GUI_BTN_RIGHT;
 
     if (x < SIDE_W) {
-        int i = (y - 28) / 26;
-        if (!right && y >= 28 && i >= 0 && i < (int)ARRAY_SIZE(places))
-            go(f, places[i].path);
+        int i = side_at(y);
+        if (!right && i >= 0 && sb[i].kind != 1) {
+            if (sb[i].path[0])
+                go(f, sb[i].path);
+            else if (sb[i].kind == 2) {                 /* a disk that is not mounted yet */
+                if (sys_volume_mount(sb[i].dev) == 0 && sys_volume_path(sb[i].dev))
+                    go(f, sys_volume_path(sb[i].dev));
+                else {
+                    strlcpy(f->target, sb[i].dev, sizeof f->target);
+                    gui_confirm(w, "Format disk?", "This disk has no MyOS filesystem. Format it as MyFS? All data on it is erased.", D_FORMAT);
+                }
+            }
+        }
     } else if (y < TOOL_H) {
         if (right)
             return;

@@ -31,6 +31,7 @@
 #include "fbcon.h"
 #include "shell.h"
 #include "blockdev.h"
+#include "sys.h"
 
 static void print_banner(void)
 {
@@ -52,6 +53,7 @@ static void init_main(void *arg)
         if (boot_has_arg("poweroff"))
             system_poweroff();
     }
+    sys_init();                         /* folders, disks, accounts */
     user_init();
     if (boot_has_arg("gui") && gui_supported())
         gui_run();

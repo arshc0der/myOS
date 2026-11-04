@@ -9,6 +9,10 @@
  */
 #include "gui.h"
 #include "guiapi.h"
+#include "sys.h"
+#include "image.h"
+#include "camera.h"
+#include "vfs.h"
 #include "gfx.h"
 #include "fbcon.h"
 #include "input.h"
@@ -69,6 +73,7 @@ static struct {
     int kind;                                            /* 0 prompt, 1 confirm, 2 alert */
     int owner, id;
     char title[40], msg[96], text[64];
+    bool fresh;                     /* prompt text untouched: the first key replaces it */
 } dlg;
 
 /* clipboard */
@@ -225,16 +230,67 @@ static void reap_windows(void)
 /* Theme and wallpaper                                                 */
 /* ------------------------------------------------------------------ */
 
+static char wall_path[96];
+static bool wallpaper_ok;
+
+/* Scale a picture so it covers the whole screen (centre crop). */
+static bool wallpaper_from_picture(void)
+{
+    const char *err;
+    struct gfx_surface *raw = image_load(wall_path, gui_th->bg_top, &err);
+    if (!raw)
+        return false;
+    for (int y = 0; y < sh; y++) {
+        int scale_h = raw->w * sh >= raw->h * sw;            /* picture wider than the screen? */
+        for (int x = 0; x < sw; x++) {
+            int sx, sy;
+            if (scale_h) {
+                sy = y * raw->h / sh;
+                sx = (raw->w - sw * raw->h / sh) / 2 + x * raw->h / sh;
+            } else {
+                sx = x * raw->w / sw;
+                sy = (raw->h - sh * raw->w / sw) / 2 + y * raw->w / sw;
+            }
+            sx = MAX(0, MIN(raw->w - 1, sx));
+            sy = MAX(0, MIN(raw->h - 1, sy));
+            wallpaper->px[y * wallpaper->stride + x] = raw->px[sy * raw->stride + sx];
+        }
+    }
+    gfx_surface_free(raw);
+    return true;
+}
+
 static void build_wallpaper(void)
 {
     gfx_surface_free(wallpaper);
     wallpaper = gfx_surface_create(sw, sh);
     if (!wallpaper)
         return;
+    wallpaper_ok = false;
+    if (wall_path[0] && wallpaper_from_picture()) {
+        wallpaper_ok = true;
+        return;
+    }
     gfx_gradient_v(wallpaper, 0, 0, sw, sh, gui_th->bg_top, gui_th->bg_bot);
     uint32_t c1 = gfx_blend(gui_th->bg_top, gui_th->bg_bot, 80), c2 = gfx_blend(gui_th->bg_top, gui_th->bg_bot, 150);
     gfx_fill_circle(wallpaper, sw * 78 / 100, sh * 30 / 100, sh / 3, c1);
     gfx_fill_circle(wallpaper, sw * 22 / 100, sh * 80 / 100, sh / 4, c2);
+}
+
+bool gui_set_wallpaper(const char *path)
+{
+    char old[sizeof wall_path];
+
+    strlcpy(old, wall_path, sizeof old);
+    strlcpy(wall_path, path, sizeof wall_path);
+    build_wallpaper();
+    if (path[0] && !wallpaper_ok) {
+        strlcpy(wall_path, old, sizeof wall_path);
+        build_wallpaper();
+        return false;
+    }
+    gui_redraw();
+    return true;
 }
 
 void gui_refresh_theme(void)
@@ -255,7 +311,7 @@ void gui_set_dark(bool dark)
 /* Icons and the dock                                                  */
 /* ------------------------------------------------------------------ */
 
-#define DOCK_ICON 52
+#define DOCK_ICON (gui_prefs.dock_size)
 #define DOCK_GAP 14
 #define MAX_DOCK 16
 
@@ -275,7 +331,7 @@ static void build_dock(void)
 static void dock_rect(int *x, int *y, int *w, int *h)
 {
     *w = ndock * DOCK_ICON + (ndock - 1) * DOCK_GAP + 32;
-    *h = 66;
+    *h = DOCK_ICON + 14;
     *x = (sw - *w) / 2;
     *y = sh - *h - 8;
 }
@@ -312,17 +368,77 @@ static void launch(const struct gui_app *a)
     gui_open(a);
 }
 
+static struct gfx_surface *icon_img[MAX_APPS];          /* custom pictures, indexed like apps[] */
+
+static const uint32_t tile_colors[8][2] = {             /* top, bottom of each coloured tile */
+    { 0x5AC8FA, 0x0A84FF }, { 0x7BE495, 0x28A745 }, { 0xFFB547, 0xFF7A00 }, { 0xC084FC, 0x7C3AED },
+    { 0xFF8FB1, 0xE5266B }, { 0xFF7B72, 0xD92D20 }, { 0x5EEAD4, 0x0D9488 }, { 0x8E9BFF, 0x4F46E5 },
+};
+
+void gui_reload_icons(void)
+{
+    static const char *const ext[] = { ".png", ".bmp", ".jpg", ".jpeg" };
+    char p[VFS_PATH_MAX];
+    const char *err;
+
+    for (int i = 0; i < MAX_APPS; i++) {
+        gfx_surface_free(icon_img[i]);
+        icon_img[i] = NULL;
+    }
+    for (int i = 0; i < napps; i++)
+        for (int d = 0; d < 2 && !icon_img[i]; d++)
+            for (unsigned e = 0; e < 4 && !icon_img[i]; e++) {
+                struct vfs_stat st;
+
+                if (d == 0 && !users_current())
+                    continue;
+                if (d == 0)
+                    ksnprintf(p, sizeof p, "%s/Library/Icons/%s%s", users_home(), apps[i]->name, ext[e]);
+                else
+                    ksnprintf(p, sizeof p, "/System/Icons/%s%s", apps[i]->name, ext[e]);
+                if (vfs_stat(p, &st) < 0)
+                    continue;
+                struct gfx_surface *raw = image_load(p, gui_th->tile, &err);
+                if (raw) {
+                    icon_img[i] = image_fit(raw, 96, 96);
+                    gfx_surface_free(raw);
+                }
+            }
+    gui_redraw();
+}
+
 static void draw_app_icon(struct gfx_surface *s, const struct gui_app *a, int x, int y, int sz)
 {
     uint32_t tile = gui_th->tile, fg = gui_th->glyph, edge = gui_th->tile_edge;
+    int idx = 0;
 
+    for (int i = 0; i < napps; i++)
+        if (apps[i] == a)
+            idx = i;
     if (a->dark_tile) {
         tile = GFX_RGB(16, 16, 18);
         fg = GFX_RGB(248, 248, 250);
         edge = gui_prefs.dark ? GFX_RGB(110, 110, 118) : tile;
+    } else if (gui_prefs.dock_colorful && gui_prefs.accent != GUI_ACCENTS - 1 && !icon_img[idx]) {
+        unsigned h = 0;
+        for (const char *c = a->name; *c; c++)
+            h = h * 31 + (uint8_t)*c;
+        tile = tile_colors[h % 8][1];
+        edge = tile;
+        fg = GFX_WHITE;
     }
     gfx_fill_round_rect(s, x - 1, y - 1, sz + 2, sz + 2, sz * 24 / 100, edge);
     gfx_fill_round_rect(s, x, y, sz, sz, sz * 23 / 100, tile);
+    if (icon_img[idx]) {                                    /* the user's own picture */
+        const struct gfx_surface *im = icon_img[idx];
+        int box = sz * 90 / 100, ox = x + (sz - box) / 2, oy = y + (sz - box) / 2;
+        for (int j = 0; j < box; j++)
+            for (int i = 0; i < box; i++) {
+                int sx = i * im->w / box, sy = j * im->h / box;
+                gfx_pixel(s, ox + i, oy + j, im->px[sy * im->stride + sx]);
+            }
+        return;
+    }
     if (a->icon)
         a->icon(s, x, y, sz, fg, tile);
     else
@@ -617,9 +733,17 @@ static void draw_menubar(struct gfx_surface *s)
                  gui_th->dim, GFX_TRANSPARENT, 1);
     uint32_t tm[6];
     char clock[24];
-    rtc_read(tm);
-    ksnprintf(clock, sizeof clock, "%02u:%02u", tm[3], tm[4]);
+    sys_local_time(tm);
+    if (sys_prefs.clock24)
+        ksnprintf(clock, sizeof clock, "%02u:%02u", tm[3], tm[4]);
+    else
+        ksnprintf(clock, sizeof clock, "%u:%02u %s", tm[3] % 12 ? tm[3] % 12 : 12, tm[4], tm[3] >= 12 ? "PM" : "AM");
     gfx_text(s, sw - gfx_text_width(clock, 1) - 14, 10, clock, gui_th->text, GFX_TRANSPARENT, 1);
+    if (gui_prefs.show_fps) {
+        char fp[16];
+        ksnprintf(fp, sizeof fp, "%d fps", gui_fps());
+        gfx_text(s, sw - gfx_text_width(clock, 1) - 100, 10, fp, gui_th->dim, GFX_TRANSPARENT, 1);
+    }
     /* magnifier = Spotlight */
     int cx = sw - gfx_text_width(clock, 1) - 44, cy = 12;
     gfx_fill_circle(s, cx, cy, 5, gui_th->text);
@@ -656,6 +780,7 @@ static void dlg_start(struct gui_window *w, int kind, const char *title, const c
 void gui_prompt(struct gui_window *w, const char *title, const char *initial, int id)
 {
     dlg_start(w, 0, title, "", initial, id);
+    dlg.fresh = initial && initial[0];
 }
 
 void gui_confirm(struct gui_window *w, const char *title, const char *message, int id)
@@ -756,6 +881,12 @@ bool gui_set_resolution(int w, int h)
     my = MAX(0, MIN(sh - 1, my));
     for (int i = 0; i < MAX_WINDOWS; i++)
         if (wins[i].used) {
+            if (wins[i].maximized) {
+                gui_resize(&wins[i], sw - 2, sh - MENUBAR_H - TITLE_H - 2 - 84);
+                wins[i].x = 0;
+                wins[i].y = MENUBAR_H;
+                continue;
+            }
             wins[i].x = MAX(-wins[i].cw + 60, MIN(sw - 80, wins[i].x));
             wins[i].y = MAX(MENUBAR_H, MIN(sh - DOCK_RESERVE - 30, wins[i].y));
         }
@@ -763,6 +894,41 @@ bool gui_set_resolution(int w, int h)
     dd_close();
     gui_redraw();
     return true;
+}
+
+void gui_resize(struct gui_window *w, int cw, int ch)
+{
+    cw = MAX(160, MIN(cw, sw - 2));
+    ch = MAX(100, MIN(ch, sh - MENUBAR_H - TITLE_H - 2));
+    struct gfx_surface *n = gfx_surface_create(cw, ch);
+    if (!n)
+        return;
+    gfx_surface_free(w->surf);
+    w->surf = n;
+    w->cw = cw;
+    w->ch = ch;
+    gui_redraw();
+}
+
+void gui_maximize(struct gui_window *w)
+{
+    if (!w->maximized) {
+        w->rx = w->x;
+        w->ry = w->y;
+        w->rcw = w->cw;
+        w->rch = w->ch;
+        w->maximized = true;
+        gui_resize(w, sw - 2, sh - MENUBAR_H - TITLE_H - 2 - 84);
+        w->x = 0;
+        w->y = MENUBAR_H;
+    } else {
+        w->maximized = false;
+        gui_resize(w, w->rcw, w->rch);
+        w->x = w->rx;
+        w->y = w->ry;
+    }
+    w->born = 0;
+    gui_redraw();
 }
 
 void gui_minimize(struct gui_window *w)
@@ -882,6 +1048,9 @@ static void draw_cursor(struct gfx_surface *s)
                 gfx_pixel(s, mx + i, my + j, GFX_WHITE);
         }
 }
+
+static int fps_count, fps_last;
+int gui_fps(void) { return fps_last; }
 
 static void render(void)
 {
@@ -1038,9 +1207,23 @@ static void mouse_click(int x, int y, int btn)
                 gui_close(w);
             else if (lx < 48)
                 gui_minimize(w);
+            else
+                gui_maximize(w);
             return;
         }
-        drag_idx = idx;
+        {   /* double click on the title bar = maximize / restore */
+            uint32_t now = timer_ticks();
+            if (now - last_click_t < 40 && (x - last_click_x) * (x - last_click_x) < 36) {
+                last_click_t = 0;
+                gui_maximize(w);
+                return;
+            }
+            last_click_t = now;
+            last_click_x = x;
+            last_click_y = y;
+        }
+        if (!w->maximized)
+            drag_idx = idx;
         drag_dx = lx;
         drag_dy = ly;
         return;
@@ -1196,6 +1379,27 @@ static void guitest_task(void *arg)
         gui_set_resolution(1280, 720);
         timer_sleep_ms(500);
     }
+    if (boot_has_arg("guiphotos")) {                    /* camera test frame -> Pictures -> Photos viewer */
+        char pth[96];
+        struct camera *cam;
+        struct gfx_surface *fr = gfx_surface_create(320, 240);
+        camera_init();
+        cam = camera_get(0);
+        if (cam && fr && cam->grab) {
+            cam->grab(cam, fr->px);
+            ksnprintf(pth, sizeof pth, "%s/Pictures/Photo 1.bmp", users_home());
+            image_save_bmp(fr, pth);
+            photos_open_file(pth);
+        }
+        gfx_surface_free(fr);
+        timer_sleep_ms(800);
+    }
+    if (boot_has_arg("guimax")) {
+        struct gui_window *fw = focused();
+        if (fw)
+            gui_maximize(fw);
+        timer_sleep_ms(500);
+    }
     timer_sleep_ms(1200);
     if (boot_has_arg("fbdump"))
         gfx_dump_serial();
@@ -1228,9 +1432,12 @@ void gui_run(void)
     collect_apps();
     build_dock();
     build_menu();
+    gui_reload_icons();
 
     gui_splash();
     build_wallpaper();
+    input_flush();
+    gui_login();
     input_flush();
 
     gui_open_named("Terminal");
@@ -1253,7 +1460,9 @@ void gui_run(void)
     while (running) {
         struct input_event ev;
         bool redraw = need_redraw;
-        int r = input_wait(&ev, animating ? 30 : 100);
+        int frame_ms = 1000 / MAX(20, MIN(100, sys_prefs.refresh_hz));
+        frame_ms = MAX(10, frame_ms / 10 * 10);
+        int r = input_wait(&ev, animating ? frame_ms : 100);
 
         need_redraw = false;
         while (r == 0) {
@@ -1271,12 +1480,15 @@ void gui_run(void)
         uint32_t sec = timer_uptime_sec();
         if (sec != last_sec) {
             last_sec = sec;
+            fps_last = fps_count;
+            fps_count = 0;
             redraw = true;
         }
         if (animating || need_redraw)
             redraw = true;
         if (redraw) {
             need_redraw = false;
+            fps_count++;
             render();
         }
     }

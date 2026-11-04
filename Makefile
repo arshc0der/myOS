@@ -19,7 +19,7 @@ CFLAGS  := -std=gnu11 -ffreestanding -fno-builtin -fno-stack-protector \
            -fno-pic -fno-pie -m32 -Wall -Wextra -O2 -g \
            -fno-omit-frame-pointer -fno-asynchronous-unwind-tables \
            -mno-sse -mno-sse2 -mno-mmx -mno-80387 -mno-avx \
-           -Iinclude
+           -Iinclude -MMD -MP
 ASFLAGS := -m32 -Iinclude
 LDFLAGS := -m elf_i386 -T linker.ld -nostdlib -z max-page-size=0x1000 -z noexecstack
 # Optional: link libgcc if you have a 32-bit one (we ship our own 64-bit
@@ -33,6 +33,9 @@ OBJS    := $(patsubst %.c,$(BUILD)/%.o,$(SRC_C)) $(patsubst %.S,$(BUILD)/%.o,$(S
 GRUB_MKRESCUE := $(shell command -v grub-mkrescue 2>/dev/null || command -v grub2-mkrescue 2>/dev/null)
 
 all: kernel.elf
+
+# header dependencies (so changing a .h rebuilds the .c files that use it)
+-include $(OBJS:.o=.d)
 
 kernel.elf: $(OBJS) linker.ld
 	$(LD) $(LDFLAGS) -o $@ $(OBJS) $(LIBGCC)

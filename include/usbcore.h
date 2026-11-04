@@ -22,7 +22,7 @@
 #define USB_MAX_HC    12
 #define USB_MAX_DEVS  24
 #define USB_MAX_EPS   3
-#define USB_MAX_HUB_PORTS 8
+#define USB_MAX_HUB_PORTS 16
 
 struct usb_hc;
 struct usb_dev;

@@ -115,6 +115,22 @@ static void fill_qtd(struct qtd *q, uint32_t next, uint32_t alt, uint32_t token,
     q->token = token;
 }
 
+/* Low/full speed device behind a high speed hub: the hub's transaction translator (TT)
+ * converts the transfers ("split transactions"). The QH must name the hub and the port. */
+static void tt_fields(const struct usb_dev *d, uint32_t *eps, uint32_t *hub)
+{
+    if (d->speed == USB_HIGH) {
+        *eps = 2;
+        *hub = 0;
+        return;
+    }
+    const struct usb_dev *c = d;
+    while (c->parent && c->parent->speed != USB_HIGH)
+        c = c->parent;
+    *eps = d->speed == USB_LOW ? 1 : 0;
+    *hub = c->parent ? ((uint32_t)c->parent->addr << 16) | ((uint32_t)c->port << 23) : 0;
+}
+
 static int ehci_ctrl(struct usb_dev *d, uint8_t rt, uint8_t req, uint16_t val, uint16_t idx, uint16_t len)
 {
     struct ehci *e = d->hc->priv;
@@ -141,8 +157,11 @@ static int ehci_ctrl(struct usb_dev *d, uint8_t rt, uint8_t req, uint16_t val, u
                  (in ? QT_PID_IN : QT_PID_OUT), d->buf);
     fill_qtd(s, len ? phys(dt) : phys(st), LP_T, QT_ACTIVE | QT_CERR3 | (8u << 16) | QT_PID_SETUP, setup);
 
-    qh->chars = (uint32_t)d->addr | (2u << 12) | (1u << 14) | (1u << 15) | ((uint32_t)(d->mps0 ? d->mps0 : 64) << 16) | (4u << 28);
-    qh->caps = 1u << 30;
+    uint32_t eps, hubf;
+    tt_fields(d, &eps, &hubf);
+    qh->chars = (uint32_t)d->addr | (eps << 12) | (1u << 14) | (1u << 15) | ((uint32_t)(d->mps0 ? d->mps0 : 64) << 16) |
+                (4u << 28) | (eps != 2 ? (1u << 27) : 0);       /* bit 27: control endpoint of a non-high-speed device */
+    qh->caps = (1u << 30) | hubf;
     qh->cur = 0;
     qh->alt = LP_T;
     qh->token = 0;
@@ -241,8 +260,11 @@ static int ehci_intr_start(struct usb_dev *d, struct usb_ep *ue)
         p->ud = d;
         ue->hcpriv = p;
         struct qh *qh = &e->qh[p->idx];
-        qh->chars = (uint32_t)d->addr | ((uint32_t)ue->num << 8) | (2u << 12) | (1u << 14) | ((uint32_t)ue->mps << 16);
-        qh->caps = 0x01u | (1u << 30);                      /* poll in micro-frame 0 of every frame */
+        uint32_t eps, hubf;
+        tt_fields(d, &eps, &hubf);
+        qh->chars = (uint32_t)d->addr | ((uint32_t)ue->num << 8) | (eps << 12) | (1u << 14) | ((uint32_t)ue->mps << 16);
+        /* poll in micro-frame 0 of every frame; behind a hub: start-split in uframe 0, complete-splits in 2..4 */
+        qh->caps = 0x01u | (eps != 2 ? (0x1Cu << 8) : 0) | (1u << 30) | hubf;
         arm(p);
         return 0;
     }
@@ -332,7 +354,7 @@ static int ehci_rh_reset(struct usb_hc *hc, int port)
 static const struct usb_hc_ops ehci_ops = {
     .name = "EHCI",
     .addr_first = false,
-    .no_split = true,
+    .no_split = false,                                      /* split transactions are supported (untested on real hubs) */
     .dev_alloc = ehci_dev_alloc,
     .dev_address = ehci_dev_address,
     .dev_free = ehci_dev_free,

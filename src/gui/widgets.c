@@ -29,7 +29,8 @@ const struct gui_theme gui_theme_dark = {
 /* The theme in use: a copy of the light or dark theme with the accent colour applied. */
 static struct gui_theme cur_theme;
 const struct gui_theme *gui_th = &cur_theme;
-struct gui_prefs gui_prefs = { .dark = false, .anim = true, .color_buttons = true, .accent = 0, .ptr_speed = 1 };
+struct gui_prefs gui_prefs = { .dark = false, .anim = true, .color_buttons = true, .accent = 0, .ptr_speed = 1,
+                             .dock_colorful = true, .dock_size = 52 };
 
 const char *const gui_accent_name[GUI_ACCENTS] = {
     "Blue", "Purple", "Pink", "Red", "Orange", "Green", "Graphite"

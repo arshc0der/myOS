@@ -51,10 +51,13 @@ static void update_fast(void)
 }
 
 /* Settings > Display: 0 = what the boot loader said, 1 = RGB, 2 = BGR. Fixes wrong colours. */
+static int fmt_choice;                  /* last Settings choice: 0 auto, 1 RGB, 2 BGR */
+
 void gfx_set_pixel_format(int mode)
 {
     if (!ready)
         return;
+    fmt_choice = mode;
     const struct boot_fb *f = &boot_info.fb;
     if (mode == 0) {
         rpos = f->red_pos; rsize = f->red_size; gpos = f->green_pos; gsize = f->green_size;
@@ -240,11 +243,11 @@ static bool dispi_present(void)
         if ((list[i].vendor == 0x1234 && list[i].device == 0x1111) ||
             (list[i].vendor == 0x80EE && list[i].device == 0xBEEF))
             dev = true;
-    if (!dev)
-        return false;
     uint16_t id = di_r(DI_ID);
+    log_info("gfx", "display adapter: pci=%d dispi id=%x", dev, id);
     if (id < 0xB0C0 || id > 0xB0CF)
         return false;
+    (void)dev;
     dispi_vram = (uint32_t)di_r(DI_VRAM64K) * 65536u;
     if (dispi_vram < 1024u * 768 * 4)
         dispi_vram = 16u * 1024 * 1024;     /* register not implemented: QEMU default is 16 MiB */
@@ -292,20 +295,27 @@ static void di_program(int w, int h)
 
 bool gfx_set_mode(int w, int h)
 {
-    if (!ready || gfx_mode_count() == 0)
+    if (!ready || gfx_mode_count() == 0) {
+        log_warn("gfx", "mode change: no switchable display");
         return false;
-    if ((uint32_t)w * (uint32_t)h * 4 > dispi_vram)
+    }
+    if ((uint32_t)w * (uint32_t)h * 4 > dispi_vram) {
+        log_warn("gfx", "mode change: %dx%d does not fit in video memory", w, h);
         return false;
+    }
     if (w == screen.w && h == screen.h)
         return true;
     uint32_t pages = ((uint32_t)w * (uint32_t)h * 4 + PAGE_SIZE - 1) / PAGE_SIZE;
     paddr_t nb = pmm_alloc_contiguous(pages);
-    if (!nb)
+    if (!nb) {
+        log_warn("gfx", "mode change: out of memory");
         return false;
+    }
     int ow = screen.w, oh = screen.h;
 
     di_program(w, h);
     if (di_r(DI_XRES) != w || di_r(DI_YRES) != h) {             /* refused: go back */
+        log_warn("gfx", "mode change: adapter refused %dx%d (reads back %dx%d)", w, h, di_r(DI_XRES), di_r(DI_YRES));
         di_program(ow, oh);
         pmm_free_pages(nb, pages);
         return false;
@@ -323,7 +333,7 @@ bool gfx_set_mode(int w, int h)
     pmm_free_pages(old, oldpages);
     fb_pitch = (uint32_t)w * 4;
     fb_bpp = 32;
-    set_format(1);
+    set_format(fmt_choice == 2 ? 2 : 1);   /* the new 32 bit mode is plain XRGB unless the user chose BGR */
     update_fast();
     boot_info.fb.width = (uint32_t)w;
     boot_info.fb.height = (uint32_t)h;

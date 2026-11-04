@@ -7,7 +7,7 @@
 | xHCI (USB 3) controller | supported (first controller only) |
 | EHCI (USB 2) controller | supported; low/full speed ports are handed to the companion UHCI/OHCI controller |
 | OHCI and UHCI (USB 1.1) controllers | supported |
-| USB hubs | supported (up to 8 ports per hub, 5 levels deep), hot plug is polled about once a second |
+| USB hubs | supported (up to 16 ports per hub, 5 levels deep, USB 2 and USB 3 hubs), hot plug is polled about once a second |
 | Keyboards, mice, tablets | supported (HID boot protocol or report descriptor) |
 | Precision touchpads (USB) | supported: finger motion moves the pointer, a quick tap clicks, the pad button clicks |
 | I2C / I2C-HID touchpads (built into most laptops) | NOT supported (see below) |
@@ -39,10 +39,9 @@ type only needs one new file plus one line in `usb_task()`.
   driver, which MyOS does not have. On such laptops the touchpad will not work
   yet; use PS/2 mode (many laptops offer it), a USB mouse, or the F2 keyboard
   pointer mode.
-- EHCI cannot talk to a low/full speed device that is plugged into a
-  high-speed hub (it needs "split transactions"). Plug such devices into a
-  root port, or use a controller that supports them (xHCI, or the companion
-  controller). A message is printed when this happens.
+- EHCI talks to low/full speed devices behind a high-speed hub with split transactions (since 2.4.0). This
+  code could not be tested in an emulator (Bochs and QEMU have no high-speed hub with a transaction
+  translator); it follows the EHCI specification, so treat it as untested on real hubs.
 - Only the first xHCI controller is used.
 - Real hardware: everything was tested in the Bochs emulator only (xHCI, EHCI,
   OHCI, UHCI, a hub with children, companion hand-over). Real computers may need

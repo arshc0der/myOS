@@ -276,6 +276,8 @@ static void hub_init(struct usb_dev *h, int cfgval)
         log_warn("usb", "%s: hub SET_CONFIGURATION failed", h->hc->name);
         return;
     }
+    if (h->speed == USB_SUPER)                                 /* SET_HUB_DEPTH: tells a USB 3 hub how deep it is */
+        ctrl(h, 0x20, 12, (uint16_t)h->depth, 0, 0);
     uint16_t dt = h->speed == USB_SUPER ? 0x2A00 : 0x2900;
     if (ctrl(h, 0xA0, 6, dt, 0, 7) < 0) {
         log_warn("usb", "%s: cannot read the hub descriptor", h->hc->name);
@@ -588,7 +590,15 @@ int usb_describe(int index, char *buf, size_t n)
         if (cnt++ != index)
             continue;
         const char *k = kind_name(&devs[i]);
-        ksnprintf(buf, n, "%c%s  %04x:%04x  %s", k[0] - 32, k + 1, devs[i].vid, devs[i].pid, devs[i].hc->name);
+        char ind[12] = "";
+        int dp = devs[i].depth > 4 ? 4 : devs[i].depth;
+        for (int j = 0; j < dp * 2; j++)
+            ind[j] = ' ';                                      /* devices behind a hub are indented */
+        if (devs[i].is_hub)
+            ksnprintf(buf, n, "%s%c%s (%d ports)  %04x:%04x  %s", ind, k[0] - 32, k + 1, devs[i].nports,
+                      devs[i].vid, devs[i].pid, devs[i].hc->name);
+        else
+            ksnprintf(buf, n, "%s%c%s  %04x:%04x  %s", ind, k[0] - 32, k + 1, devs[i].vid, devs[i].pid, devs[i].hc->name);
         return 1;
     }
     return 0;

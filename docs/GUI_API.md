@@ -77,3 +77,19 @@ Use `vfs.h` for files and `fileops.h` for copy / move / delete / rename (see `MY
 `sched.h` lists and controls tasks (`sched_for_each`, `task_kill`); the Task Manager
 (`src/gui/apps/taskmgr.c`) is a complete example. `src/gui/apps/files.c` shows menus, popups,
 dialogs and the clipboard together.
+
+## Added in 2.4.0
+
+| Function | Purpose |
+|----------|---------|
+| `gui_maximize(w)` | toggle maximize / restore (green button does the same) |
+| `gui_resize(w, cw, ch)` | change the client size of a window (the surface is re-created) |
+| `gui_set_wallpaper(path)` | picture as desktop background |
+| `gui_reload_icons()` | re-read the custom dock icon pictures |
+| `gui_fps()` | frames drawn in the last second |
+| `photos_open_file(path)` | open a picture in Photos |
+| `gui_login()` | the Welcome / Log in screen (called once at start) |
+
+`gui_prefs` gained `dock_colorful`, `dock_size`, `show_fps`. Pictures: `image.h` (see `IMAGES.md`).
+Users, disks and time zone: `sys.h` (see `SYSTEM.md`).
+A window's size can change at any time (maximize, resolution change): always draw from `w->cw` and `w->ch`.
