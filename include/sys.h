@@ -85,5 +85,10 @@ void sys_country_apply(int i);                  /* sets the time zone / city / d
 bool sys_hostname_ok(const char *n);
 /* Erase settings (and with erase_data also accounts and home folders), mark setup as not done. */
 void sys_factory_reset(bool erase_data);
-void sys_prefs_defaults(void);             /* rtc time + tz_minutes: y m d H M S */
+void sys_prefs_defaults(void);
+/* Text in the chosen language (English if there is no translation). Languages: hi (Latin letters), es, fr, de, pt. */
+const char *sys_tr(const char *english);
+/* Look for a newer MyOS on the mounted disks (folder MyOSUpdate with a VERSION file). Returns 1 if found;
+ * `msg` always receives a sentence for the user. */
+int  sys_update_check(char *msg, size_t n);             /* rtc time + tz_minutes: y m d H M S */
 #endif

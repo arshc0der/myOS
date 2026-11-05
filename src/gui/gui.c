@@ -1330,6 +1330,65 @@ static uint32_t hover_sig(void)
     return 0;
 }
 
+
+/* Screen magnifier: a 3x lens next to the pointer (Settings > Accessibility). */
+static void draw_magnifier(struct gfx_surface *s)
+{
+    enum { Z = 3, LW = 270, LH = 168, SW_ = LW / Z, SH_ = LH / Z };
+    static uint32_t tmp[SW_ * SH_];
+    int sx = MAX(0, MIN(sw - SW_, mx - SW_ / 2)), sy = MAX(0, MIN(sh - SH_, my - SH_ / 2));
+    int lx = mx + 26, ly = my + 26;
+
+    if (!sys_prefs.acc_magnify)
+        return;
+    if (lx + LW > sw) lx = mx - 26 - LW;
+    if (ly + LH > sh) ly = my - 26 - LH;
+    lx = MAX(0, lx);
+    ly = MAX(MENUBAR_H, ly);
+    for (int j = 0; j < SH_; j++)
+        for (int i = 0; i < SW_; i++)
+            tmp[j * SW_ + i] = s->px[(sy + j) * s->stride + sx + i];
+    for (int j = 0; j < LH; j++)
+        for (int i = 0; i < LW; i++)
+            s->px[(ly + j) * s->stride + lx + i] = tmp[(j / Z) * SW_ + i / Z];
+    gfx_fill_rect(s, lx - 2, ly - 2, LW + 4, 2, gui_th->accent);
+    gfx_fill_rect(s, lx - 2, ly + LH, LW + 4, 2, gui_th->accent);
+    gfx_fill_rect(s, lx - 2, ly - 2, 2, LH + 4, gui_th->accent);
+    gfx_fill_rect(s, lx + LW, ly - 2, 2, LH + 4, gui_th->accent);
+}
+
+/* Screen reader: a caption bar names what the pointer is over and the active window,
+ * with a short tone when it changes (no speech engine). */
+static void draw_reader(struct gfx_surface *s)
+{
+    static char last[96];
+    char cap[96] = "Desktop";
+    struct gui_window *front = focused();
+
+    if (!sys_prefs.acc_reader)
+        return;
+    for (int i = nz - 1; i >= 0; i--) {
+        struct gui_window *w = &wins[zorder[i]];
+        if (!w->minimized && mx >= w->x && mx < w->x + outer_w(w) && my >= w->y && my < w->y + outer_h(w)) {
+            ksnprintf(cap, sizeof cap, "Window: %s", w->title);
+            break;
+        }
+    }
+    if (my < MENUBAR_H)
+        ksnprintf(cap, sizeof cap, "Menu bar");
+    else if (my > sh - DOCK_RESERVE)
+        ksnprintf(cap, sizeof cap, "Dock");
+    if (strcmp(cap, last) != 0) {
+        strlcpy(last, cap, sizeof last);
+        speaker_beep(520, 15);
+    }
+    char line[128];
+    ksnprintf(line, sizeof line, "%s   |   Active: %s", cap, front ? front->title : "none");
+    int w = gfx_text_width(line, 2) + 40, x = (sw - w) / 2, y = sh - DOCK_RESERVE - 44;
+    gfx_fill_round_rect(s, x, y, w, 34, 10, GFX_RGB(0, 0, 0));
+    gfx_text(s, x + 20, y + 9, line, GFX_RGB(255, 255, 255), GFX_TRANSPARENT, 2);
+}
+
 static int fps_count, fps_last;
 int gui_fps(void) { return fps_last; }
 
@@ -1356,6 +1415,8 @@ static void render(void)
         draw_spotlight(s);
     if (dlg.open)
         draw_dialog(s);
+    draw_reader(s);
+    draw_magnifier(s);
     cur_on = false;
     cursor_paint(s);
     gfx_flush_all();

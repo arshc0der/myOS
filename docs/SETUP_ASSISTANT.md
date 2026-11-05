@@ -20,7 +20,5 @@ home folders too); shell: `factoryreset yes [erase]`. Both clear the setup flag;
 
 Login screen (later boots): user list, password, Log In, Restart, Shut Down.
 
-Limits: without a disk /Users is RAM and setup repeats; use the Storage step (or make run). Saved but not implemented yet:
-screen reader, magnification, voice assistant, auto updates, language
-translation, volume (no audio driver). Wi-Fi needs a driver (see NETWORK.md / wifi_register). Not tested at
+Limits: without a disk /Users is RAM and setup repeats; use the Storage step (or make run). See RELEASE_NOTES_v2.7.0.md for what is and is not implemented.
 run time: this release was only compiled.

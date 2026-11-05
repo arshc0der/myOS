@@ -8,6 +8,7 @@
 #include "log.h"
 #include "hw.h"
 #include "fileops.h"
+#include "version.h"
 
 static bool persistent;
 static int nusers, cur = -1;
@@ -497,4 +498,97 @@ void sys_date_string(char *out, size_t n)
         ksnprintf(out, n, "%04u-%02u-%02u", r[0], r[1], r[2]);
     else
         ksnprintf(out, n, "%02u/%02u/%04u", r[2], r[1], r[0]);
+}
+
+/* ------------------------------------------------------------------ */
+/* Translations                                                        */
+/* ------------------------------------------------------------------ */
+
+static const char *const tr_table[][6] = {
+    /* English, Hindi (Latin), Spanish, French, German, Portuguese */
+    { "Back", "Peeche", "Atras", "Retour", "Zurueck", "Voltar" },
+    { "Continue", "Aage badhein", "Continuar", "Continuer", "Weiter", "Continuar" },
+    { "Skip", "Chhodein", "Omitir", "Passer", "Ueberspringen", "Pular" },
+    { "Finish", "Poora karein", "Terminar", "Terminer", "Fertig", "Concluir" },
+    { "Start Setup", "Setup shuru karein", "Iniciar", "Demarrer", "Einrichten", "Iniciar" },
+    { "Quick Setup", "Tez Setup", "Rapido", "Rapide", "Schnell", "Rapido" },
+    { "Get Started", "Shuru karein", "Empezar", "Commencer", "Los geht's", "Comecar" },
+    { "Log In", "Login karein", "Entrar", "Connexion", "Anmelden", "Entrar" },
+    { "Restart", "Dobara chalu", "Reiniciar", "Redemarrer", "Neustart", "Reiniciar" },
+    { "Shut Down", "Band karein", "Apagar", "Eteindre", "Ausschalten", "Desligar" },
+    { "Welcome", "Swagat hai", "Bienvenido", "Bienvenue", "Willkommen", "Bem-vindo" },
+    { "Hardware check", "Hardware jaanch", "Revision del equipo", "Verification materiel", "Hardware-Pruefung", "Verificacao" },
+    { "Storage", "Storage", "Almacenamiento", "Stockage", "Speicher", "Armazenamento" },
+    { "Language", "Bhasha", "Idioma", "Langue", "Sprache", "Idioma" },
+    { "Country or region", "Desh ya kshetra", "Pais o region", "Pays ou region", "Land oder Region", "Pais ou regiao" },
+    { "Accessibility", "Sugamta", "Accesibilidad", "Accessibilite", "Bedienungshilfen", "Acessibilidade" },
+    { "Keyboard", "Keyboard", "Teclado", "Clavier", "Tastatur", "Teclado" },
+    { "Network", "Network", "Red", "Reseau", "Netzwerk", "Rede" },
+    { "Data and privacy", "Data aur privacy", "Datos y privacidad", "Donnees et confidentialite", "Daten und Datenschutz", "Dados e privacidade" },
+    { "Create your account", "Apna account banayein", "Crea tu cuenta", "Creez votre compte", "Konto erstellen", "Crie sua conta" },
+    { "Computer name", "Computer ka naam", "Nombre del equipo", "Nom de l'ordinateur", "Computername", "Nome do computador" },
+    { "Date and time", "Tarikh aur samay", "Fecha y hora", "Date et heure", "Datum und Uhrzeit", "Data e hora" },
+    { "Final preferences", "Antim pasand", "Preferencias finales", "Preferences finales", "Letzte Einstellungen", "Preferencias finais" },
+    { "Appearance", "Roop", "Apariencia", "Apparence", "Darstellung", "Aparencia" },
+    { "Dock", "Dock", "Dock", "Dock", "Dock", "Dock" },
+    { "Pointer", "Pointer", "Puntero", "Pointeur", "Zeiger", "Ponteiro" },
+    { "Display", "Display", "Pantalla", "Ecran", "Bildschirm", "Tela" },
+    { "Date & Time", "Tarikh aur samay", "Fecha y hora", "Date et heure", "Datum & Zeit", "Data e hora" },
+    { "Users", "Upyogkarta", "Usuarios", "Utilisateurs", "Benutzer", "Usuarios" },
+    { "Devices", "Devices", "Dispositivos", "Peripheriques", "Geraete", "Dispositivos" },
+    { "Sound", "Dhwani", "Sonido", "Son", "Ton", "Som" },
+    { "Privacy", "Privacy", "Privacidad", "Confidentialite", "Datenschutz", "Privacidade" },
+    { "General", "Aam", "General", "General", "Allgemein", "Geral" },
+    { "Hardware", "Hardware", "Equipo", "Materiel", "Hardware", "Hardware" },
+    { "Enter your password", "Password daalein", "Escribe tu contrasena", "Entrez votre mot de passe", "Passwort eingeben", "Digite a senha" },
+    { "Wrong password. Try again.", "Galat password. Phir koshish karein.", "Contrasena incorrecta.", "Mot de passe incorrect.", "Falsches Passwort.", "Senha incorreta." },
+    { "Setting up your computer", "Computer taiyaar ho raha hai", "Preparando tu equipo", "Configuration en cours", "Computer wird eingerichtet", "Preparando o computador" },
+    { "Your computer is ready.", "Aapka computer taiyaar hai.", "Tu equipo esta listo.", "Votre ordinateur est pret.", "Dein Computer ist bereit.", "Seu computador esta pronto." },
+};
+
+const char *sys_tr(const char *en)
+{
+    int l = sys_prefs.language;
+    if (l < 1 || l > 5)
+        return en;
+    for (unsigned i = 0; i < sizeof tr_table / sizeof *tr_table; i++)
+        if (!strcmp(tr_table[i][0], en))
+            return tr_table[i][l];
+    return en;
+}
+
+/* ------------------------------------------------------------------ */
+/* Updates from a disk                                                 */
+/* ------------------------------------------------------------------ */
+
+static uint32_t ver_num(const char *v)
+{
+    uint32_t p[3] = { 0, 0, 0 };
+    for (int i = 0; i < 3 && *v; i++) {
+        while (*v >= '0' && *v <= '9') p[i] = p[i] * 10 + (uint32_t)(*v++ - '0');
+        if (*v == '.') v++;
+    }
+    return p[0] * 10000 + p[1] * 100 + p[2];
+}
+
+int sys_update_check(char *msg, size_t n)
+{
+    struct dirent e;
+    char path[VFS_PATH_MAX], v[24];
+
+    for (uint32_t i = 0; vfs_readdir("/Volumes", i, &e) == 0; i++) {
+        ksnprintf(path, sizeof path, "/Volumes/%s/MyOSUpdate/VERSION", e.name);
+        ssize_t r = vfs_read_file(path, v, sizeof v - 1);
+        if (r <= 0)
+            continue;
+        v[r] = 0;
+        for (char *c = v; *c; c++)
+            if (*c == '\n' || *c == '\r') *c = 0;
+        if (ver_num(v) > ver_num(MYOS_VERSION)) {
+            ksnprintf(msg, n, "MyOS %s is on %s (MyOSUpdate). Put its kernel.elf on your boot disk and restart.", v, e.name);
+            return 1;
+        }
+    }
+    ksnprintf(msg, n, "MyOS %s is up to date. Updates are looked for in a MyOSUpdate folder on connected disks.", MYOS_VERSION);
+    return 0;
 }

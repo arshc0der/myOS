@@ -35,6 +35,7 @@ struct usb_ep {
     uint8_t *buf;               /* receives the report (one DMA page)               */
     void *hcpriv;               /* the host controller driver's data                */
     struct hid_dev hid;
+    bool bt;                    /* Bluetooth HCI event endpoint (btusb.c)          */
 };
 
 struct usb_dev {
@@ -108,5 +109,7 @@ void usb_pci_enable(const struct pci_device *pd, bool io);
 /* map BAR0 of a memory-mapped controller (EHCI, OHCI): returns NULL on failure */
 volatile uint8_t *usb_map_bar0(const struct pci_device *pd);
 
+bool btusb_attach(struct usb_dev *d, int total);       /* Bluetooth dongles */
+void btusb_event(const uint8_t *data, int len);
 bool usb_find_class(uint8_t cls, int n, uint16_t *vid, uint16_t *pid);
 #endif

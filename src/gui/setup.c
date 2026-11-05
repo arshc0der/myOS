@@ -528,9 +528,9 @@ static void draw_welcome(struct gfx_surface *s)
     gfx_draw_logo(s, scw / 2 - 40, sch / 2 - 150, 80);
     tw = gfx_text_width(g, 6);
     gfx_text(s, (scw - tw) / 2, sch / 2 - 40, g, gfx_blend(gui_th->bg_bot, gui_th->text, MIN(255, alpha)), GFX_TRANSPARENT, 6);
-    gui_label_center(s, 0, sch / 2 + 30, scw, "Welcome to MyOS", gui_th->dim);
-    button(s, scw / 2 - 90, sch / 2 + 70, 180, 38, "Start Setup", H_START, true);
-    button(s, scw / 2 - 90, sch / 2 + 118, 180, 30, "Quick Setup", H_BTN2, false);
+    { char wl[48]; ksnprintf(wl, sizeof wl, "%s - MyOS", sys_tr("Welcome")); gui_label_center(s, 0, sch / 2 + 30, scw, wl, gui_th->dim); }
+    button(s, scw / 2 - 90, sch / 2 + 70, 180, 38, sys_tr("Start Setup"), H_START, true);
+    button(s, scw / 2 - 90, sch / 2 + 118, 180, 30, sys_tr("Quick Setup"), H_BTN2, false);
     gui_label_center(s, 0, sch / 2 + 160, scw, "Quick Setup: account \"user\" without a password and default settings", gui_th->dim);
 }
 
@@ -638,7 +638,7 @@ static void draw_access(struct gfx_surface *s)
 {
     static const char *const lab[5] = { "Screen reader", "Screen magnification", "High contrast", "Keyboard navigation", "Reduce motion" };
     static const char *const desc[5] = {
-        "Saved only: speech output is not available in this version", "Saved only: zoom is not available in this version",
+        "Captions and a tone for the window under the pointer", "A 3x lens next to the pointer",
         "Black and white interface with strong lines (works now)", "Move the pointer with Alt + arrow keys",
         "Turn off window and dock animations (works now)" };
     draw_toggles(s, S_ACCESS, lab, desc, 5, BY);
@@ -803,8 +803,8 @@ static void draw_time(struct gfx_surface *s)
 static void draw_prefs(struct gfx_surface *s)
 {
     static const char *const lab[4] = { "Install updates automatically", "Check for updates", "Voice assistant", "Open Terminal after login" };
-    static const char *const desc[4] = { "Saved only: there is no update server yet", "Look for new versions when connected",
-        "Saved only: no speech support in this version", "Show a Terminal window when the desktop starts" };
+    static const char *const desc[4] = { "Look on connected disks (MyOSUpdate) at startup", "Look for new versions when connected",
+        "The Assistant app answers with a tone (typed requests)", "Show a Terminal window when the desktop starts" };
     static const char *const md[2] = { "Light", "Dark" };
 
     draw_toggles(s, S_PREFS, lab, desc, 4, BY);
@@ -870,7 +870,7 @@ static void draw_finish(struct gfx_surface *s)
     background(s);
     gfx_draw_logo(s, scw / 2 - 36, sch / 2 - 160, 72);
     if (!fin_welcome) {
-        gui_label_center(s, 0, sch / 2 - 60, scw, "Setting up your computer", gui_th->text);
+        gui_label_center(s, 0, sch / 2 - 60, scw, sys_tr("Setting up your computer"), gui_th->text);
         for (int i = 0; i < 6; i++) {
             int y = sch / 2 - 30 + i * 22, x = scw / 2 - 130;
             uint32_t c = i < fin_stage ? gui_th->text : gui_th->dim;
@@ -885,8 +885,8 @@ static void draw_finish(struct gfx_surface *s)
         const char *who = fullname[0] ? fullname : uname[0] ? uname : users_get(0)->name;
         ksnprintf(l, sizeof l, "%s, %s", sys_greetings[sys_prefs.language], who);
         gfx_text(s, (scw - gfx_text_width(l, 3)) / 2, sch / 2 - 60, l, gui_th->text, GFX_TRANSPARENT, 3);
-        gui_label_center(s, 0, sch / 2 - 10, scw, "Your computer is ready.", gui_th->dim);
-        button(s, scw / 2 - 90, sch / 2 + 30, 180, 38, "Get Started", H_START, true);
+        gui_label_center(s, 0, sch / 2 - 10, scw, sys_tr("Your computer is ready."), gui_th->dim);
+        button(s, scw / 2 - 90, sch / 2 + 30, 180, 38, sys_tr("Get Started"), H_START, true);
         gui_label_center(s, 0, sch / 2 + 84, scw, "Settings you chose are in System Settings.", gui_th->dim);
     }
 }
@@ -905,7 +905,7 @@ static void draw_step(struct gfx_surface *s)
     background(s);
     card(s, CX, CY, CW, CH);
     draw_progress(s);
-    gfx_text(s, BX, CY + 36, step_title[step], gui_th->text, GFX_TRANSPARENT, 2);
+    gfx_text(s, BX, CY + 36, sys_tr(step_title[step]), gui_th->text, GFX_TRANSPARENT, 2);
     gfx_text(s, BX, CY + 60, step_sub[step], gui_th->dim, GFX_TRANSPARENT, 1);
     switch (step) {
     case S_POST: draw_post(s); break;
@@ -925,10 +925,10 @@ static void draw_step(struct gfx_surface *s)
         gfx_text(s, BX, CY + CH - 62, errmsg, RED, GFX_TRANSPARENT, 1);
     /* footer */
     gfx_fill_rect(s, CX + 20, CY + CH - 48, CW - 40, 1, gui_th->line);
-    button(s, CX + 36, CY + CH - 38, 100, 28, "Back", H_BACK, false);
+    button(s, CX + 36, CY + CH - 38, 100, 28, sys_tr("Back"), H_BACK, false);
     if (skippable(step))
-        button(s, CX + CW - 36 - 100 - 110, CY + CH - 38, 100, 28, "Skip", H_SKIP, false);
-    button(s, CX + CW - 36 - 100, CY + CH - 38, 100, 28, step == S_PREFS ? "Finish" : "Continue", H_NEXT, true);
+        button(s, CX + CW - 36 - 100 - 110, CY + CH - 38, 100, 28, sys_tr("Skip"), H_SKIP, false);
+    button(s, CX + CW - 36 - 100, CY + CH - 38, 100, 28, sys_tr(step == S_PREFS ? "Finish" : "Continue"), H_NEXT, true);
     char pr[24];
     ksnprintf(pr, sizeof pr, "Step %d of %d", step - S_POST + 1, S_PREFS - S_POST + 1);
     gui_label_center(s, CX + 150, CY + CH - 29, CW - 300 - 120, pr, gui_th->dim);
@@ -1246,10 +1246,10 @@ static void login_screen(void)
             gui_textfield(s, cx + 24, py, cw - 48, hid, true);
             hit(cx + 24, py, cw - 48, 28, H_FLD);
         }
-        button(s, cx + 24, py + 38, cw - 48, 30, "Log In", H_NEXT, true);
-        gui_label_center(s, cx, py + 76, cw, err[0] ? err : sys_prefs.require_password ? "Enter your password" : "Click Log In", err[0] ? RED : gui_th->dim);
-        button(s, scw / 2 - 110, sch - 60, 100, 30, "Restart", H_RESTART, false);
-        button(s, scw / 2 + 10, sch - 60, 100, 30, "Shut Down", H_SHUT, false);
+        button(s, cx + 24, py + 38, cw - 48, 30, sys_tr("Log In"), H_NEXT, true);
+        gui_label_center(s, cx, py + 76, cw, err[0] ? err : sys_prefs.require_password ? sys_tr("Enter your password") : "Click Log In", err[0] ? RED : gui_th->dim);
+        button(s, scw / 2 - 110, sch - 60, 100, 30, sys_tr("Restart"), H_RESTART, false);
+        button(s, scw / 2 + 10, sch - 60, 100, 30, sys_tr("Shut Down"), H_SHUT, false);
         draw_pointer(s);
         gfx_flush_all();
 
@@ -1284,7 +1284,7 @@ static void login_screen(void)
                 users_login(users_get(sel)->name);
                 return;
             }
-            ksnprintf(err, sizeof err, "Wrong password. Try again.");
+            ksnprintf(err, sizeof err, "%s", sys_tr("Wrong password. Try again."));
             pw[0] = 0;
         } else if (action == H_RESTART) {
             system_reboot();

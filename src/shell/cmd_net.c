@@ -108,3 +108,25 @@ static int cmd_bluetooth(int argc, char **argv)
     return 0;
 }
 SHELL_COMMAND("bluetooth", "bluetooth", "List Bluetooth devices (needs a driver)", cmd_bluetooth);
+
+static int cmd_wget(int argc, char **argv)
+{
+    static char page[8192];
+    char host[64], path[128] = "/";
+    const char *u;
+    int port = 80, status = 0, n, i = 0;
+
+    if (argc < 2) { kprintf("usage: wget http://host[:port]/path\n"); return 1; }
+    u = argv[1];
+    if (!strncmp(u, "http://", 7)) u += 7;
+    while (*u && *u != '/' && *u != ':' && i < 63) host[i++] = *u++;
+    host[i] = 0;
+    if (*u == ':') { port = katoi(u + 1); while (*u && *u != '/') u++; }
+    if (*u) strlcpy(path, u, sizeof path);
+    if (!net_is_up() && net_up() < 0) { kprintf("wget: network is not up\n"); return 1; }
+    n = net_http_get(host, (uint16_t)port, path, page, sizeof page, &status);
+    if (n < 0) { kprintf("wget: could not fetch %s\n", argv[1]); return 1; }
+    kprintf("HTTP %d, %d bytes\n%s\n", status, n, page);
+    return 0;
+}
+SHELL_COMMAND("wget", "wget http://host[:port]/path", "Fetch a web page over HTTP (no HTTPS) and print it", cmd_wget);

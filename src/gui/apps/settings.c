@@ -28,6 +28,7 @@ static const char *pages[] = { "Appearance", "Dock", "Pointer", "Display", "Date
 enum { P_APP, P_DOCK, P_PTR, P_DISP, P_TIME, P_NET, P_BT, P_USERS, P_STORE, P_DEV, P_LANG, P_ACC, P_KBD, P_SND, P_PRIV, P_GEN, P_HW, NPAGES };
 enum { D_ADDUSER = 1, D_ADDPW, D_CHPW, D_DELUSER, D_WIFIPW, D_HOST, D_RESET_SET, D_RESET_ALL };
 
+static char upd_msg[160];
 static volatile int ping_ms = -3;                 /* -3 never run, -2 running, -1 no answer, >=0 round trip */
 
 static void ping_task(void *arg)
@@ -44,6 +45,8 @@ static struct settings st_store;
 static void settings_open(struct gui_window *w)
 {
     st_store.page = 0;
+    if (sys_prefs.check_updates && !upd_msg[0])
+        sys_update_check(upd_msg, sizeof upd_msg);
     w->priv = &st_store;
 }
 
@@ -147,9 +150,9 @@ static void settings_draw(struct gui_window *w)
     gfx_fill_rect(s, 0, 0, SIDE_W, w->ch, gui_th->side);
     gfx_vline(s, SIDE_W, 0, w->ch, gui_th->line);
     for (int i = 0; i < NPAGES; i++)
-        gui_sidebar_row(s, 0, 14 + i * 28, SIDE_W, pages[i], i == st->page);
+        gui_sidebar_row(s, 0, 14 + i * 28, SIDE_W, sys_tr(pages[i]), i == st->page);
 
-    gfx_text(s, X0, 20, pages[st->page], gui_th->text, GFX_TRANSPARENT, 2);
+    gfx_text(s, X0, 20, sys_tr(pages[st->page]), gui_th->text, GFX_TRANSPARENT, 2);
     switch (st->page) {
     case P_APP: {
         const char *a[] = { "Light", "Dark" }, *b[] = { "Monochrome", "Color" }, *c[] = { "On", "Off" };
@@ -392,7 +395,7 @@ static void settings_draw(struct gui_window *w)
     }
     case P_ACC: {
         static const char *const lab[5] = { "Screen reader", "Screen magnification", "High contrast", "Keyboard navigation", "Reduce motion" };
-        static const char *const dsc[5] = { "Saved only: no speech output yet", "Saved only: zoom not available yet", "Black and white interface (works now)",
+        static const char *const dsc[5] = { "Captions + tone for the window under the pointer", "3x lens next to the pointer", "Black and white interface (works now)",
             "Move the pointer with Alt + arrow keys", "Turn off animations (works now)" };
         for (int i = 0; i < 5; i++)
             trow(s, 60 + i * 46, lab[i], dsc[i], *pref_toggle(P_ACC, i));
@@ -427,7 +430,7 @@ static void settings_draw(struct gui_window *w)
     }
     case P_GEN: {
         static const char *const lab[4] = { "Install updates automatically", "Check for updates", "Voice assistant", "Open Terminal after login" };
-        static const char *const dsc[4] = { "Saved only: no update server yet", "When connected to a network", "Saved only: no speech support yet", "Terminal window at startup" };
+        static const char *const dsc[4] = { "Look on disks (MyOSUpdate) at startup", "When connected to a network", "Assistant app answers with a tone (typed)", "Terminal window at startup" };
         char l[96];
         heading(s, 54, "Computer name");
         ksnprintf(l, sizeof l, "%s   (%s.local)", sys_prefs.hostname, sys_prefs.hostname);
@@ -445,6 +448,14 @@ static void settings_draw(struct gui_window *w)
         gui_button(s, X0, 368, 190, 28, "Reset settings...", false);
         gui_button(s, X0 + 200, 368, 220, 28, "Erase everything...", false);
         note(s, 404, "Both restart the computer and run the Setup Assistant again.");
+        heading(s, 428, "Software update");
+        gui_button(s, X0, 444, 140, 26, "Check now", false);
+        if (upd_msg[0]) {
+            char a[64];
+            strlcpy(a, upd_msg, sizeof a);
+            note(s, 476, a);
+            if (strlen(upd_msg) > 56) note(s, 490, upd_msg + 56);
+        }
         break;
     }
     case P_HW: {
@@ -625,6 +636,8 @@ static void settings_click(struct gui_window *w, int x, int y, int buttons)
     case P_GEN:
         if (gui_hit(x, y, X0 + SEGW - 100, 66, 100, 24))
             gui_prompt(w, "Computer name", sys_prefs.hostname, D_HOST);
+        else if (gui_hit(x, y, X0, 444, 140, 26))
+            sys_update_check(upd_msg, sizeof upd_msg);
         else if (gui_hit(x, y, X0, 368, 190, 28))
             gui_confirm(w, "Reset settings", "Restore default settings and run the Setup Assistant again? Accounts and files are kept. The computer restarts.", D_RESET_SET);
         else if (gui_hit(x, y, X0 + 200, 368, 220, 28))
@@ -720,7 +733,7 @@ static void settings_icon(struct gfx_surface *s, int x, int y, int sz, uint32_t 
 }
 
 static const struct gui_app settings_app = {
-    .name = "Settings", .title = "Settings", .cw = 600, .ch = 500, .single = true, .dock = 50,
+    .name = "Settings", .title = "Settings", .cw = 600, .ch = 520, .single = true, .dock = 50,
     .open = settings_open, .draw = settings_draw, .click = settings_click, .key = settings_key,
     .tick = settings_tick, .dialog = settings_dialog, .icon = settings_icon,
 };

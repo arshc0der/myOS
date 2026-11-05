@@ -88,6 +88,10 @@ int usb_hc_add(const struct usb_hc_ops *ops, const char *name, int nports, void 
 void usb_report(struct usb_dev *d, struct usb_ep *e, const uint8_t *data, int len)
 {
     (void)d;
+    if (e->bt) {
+        btusb_event(data, len);
+        return;
+    }
     hid_report(&e->hid, data, len);
 }
 
@@ -442,6 +446,14 @@ static struct usb_dev *enumerate(struct usb_hc *hc, struct usb_dev *parent, int 
     if (hub) {
         hub_init(d, cfgval);
         return d;
+    }
+    {
+        bool has_bt = d->cls == 0xE0;
+        for (int i = 9; !has_bt && i + 9 <= total && d->buf[i] >= 2; i += d->buf[i])
+            if (d->buf[i + 1] == 4 && d->buf[i + 5] == 0xE0)
+                has_bt = true;
+        if (has_bt && btusb_attach(d, total))
+            return d;
     }
     attach_hid(d, total);
     return d;

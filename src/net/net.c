@@ -269,6 +269,90 @@ static void udp_rx(uint32_t src, const uint8_t *p, size_t len)
             listeners[i].cb(src, sport, p + 8, (size_t)ulen - 8);
 }
 
+/* ---------------------------------------------------------------- */
+/* TCP: one client connection at a time (enough for HTTP)           */
+/* ---------------------------------------------------------------- */
+
+enum { T_CLOSED, T_SYN, T_EST, T_FIN, T_RST };
+static volatile int tcp_state = T_CLOSED;
+static uint32_t tcp_rip, tcp_snd, tcp_rcv;
+static uint16_t tcp_lport, tcp_rport;
+#define TCP_RB 16384
+static uint8_t tcp_rb[TCP_RB];
+static volatile uint32_t tcp_rh, tcp_rt;                 /* write / read positions (ever increasing) */
+
+static void tcp_seg(uint8_t flags, const void *data, size_t len)
+{
+    uint8_t seg[1480];
+    size_t hl = (flags & 2) ? 24 : 20;
+    uint32_t sum;
+
+    if (!dev || len > 1400)
+        return;
+    memset(seg, 0, hl);
+    put16(seg, tcp_lport);
+    put16(seg + 2, tcp_rport);
+    put32(seg + 4, tcp_snd);
+    put32(seg + 8, (flags & 0x10) ? tcp_rcv : 0);
+    seg[12] = (uint8_t)(hl / 4 << 4);
+    seg[13] = flags;
+    put16(seg + 14, (uint16_t)(TCP_RB / 2));
+    if (flags & 2) {                                     /* SYN: maximum segment size option */
+        seg[20] = 2; seg[21] = 4; put16(seg + 22, 1400);
+    }
+    if (len)
+        memcpy(seg + hl, data, len);
+    sum = (dev->ip >> 16) + (dev->ip & 0xFFFF) + (tcp_rip >> 16) + (tcp_rip & 0xFFFF) + 6 + (uint32_t)(hl + len);
+    put16(seg + 16, checksum(seg, hl + len, sum));
+    ip_send(tcp_rip, 6, seg, hl + len, false);
+}
+
+static void tcp_rx(uint32_t src, const uint8_t *p, size_t len)
+{
+    if (len < 20 || src != tcp_rip || get16(p) != tcp_rport || get16(p + 2) != tcp_lport || tcp_state == T_CLOSED)
+        return;
+    size_t hl = (size_t)(p[12] >> 4) * 4;
+    uint8_t fl = p[13];
+    uint32_t seq = get32(p + 4);
+    if (hl < 20 || hl > len)
+        return;
+    size_t n = len - hl;
+
+    if (fl & 4) {
+        tcp_state = T_RST;
+        return;
+    }
+    if (tcp_state == T_SYN) {
+        if ((fl & 0x12) == 0x12 && get32(p + 8) == tcp_snd + 1) {
+            tcp_snd++;
+            tcp_rcv = seq + 1;
+            tcp_state = T_EST;
+            tcp_seg(0x10, NULL, 0);
+        }
+        return;
+    }
+    if (seq != tcp_rcv)                                  /* out of order or repeated: re-acknowledge */
+    {
+        tcp_seg(0x10, NULL, 0);
+        return;
+    }
+    if (n) {
+        size_t room = TCP_RB - (tcp_rh - tcp_rt);
+        if (n > room)
+            return;                                      /* buffer full: the peer will send it again */
+        for (size_t i = 0; i < n; i++)
+            tcp_rb[(tcp_rh + i) % TCP_RB] = p[hl + i];
+        tcp_rh += (uint32_t)n;
+        tcp_rcv += (uint32_t)n;
+    }
+    if (fl & 1) {
+        tcp_rcv++;
+        tcp_state = T_FIN;
+    }
+    if (n || (fl & 1))
+        tcp_seg(0x10, NULL, 0);
+}
+
 static void ip_rx(const uint8_t *p, size_t len)
 {
     if (len < 20 || (p[0] >> 4) != 4)
@@ -284,6 +368,8 @@ static void ip_rx(const uint8_t *p, size_t len)
         icmp_rx(src, p + ihl, tot - ihl);
     else if (p[9] == 17)
         udp_rx(src, p + ihl, tot - ihl);
+    else if (p[9] == 6)
+        tcp_rx(src, p + ihl, tot - ihl);
 }
 
 static void arp_rx(const uint8_t *p, size_t len)
@@ -559,4 +645,120 @@ uint32_t net_resolve(const char *name)
             timer_sleep_ms(10);
     }
     return dns_answer;
+}
+
+/* ---- public TCP API ---- */
+
+int net_tcp_connect(uint32_t ip, uint16_t port, int timeout_ms)
+{
+    static uint16_t next_port = 40000;
+
+    if (!up || !dev)
+        return -1;
+    tcp_rip = ip;
+    tcp_rport = port;
+    tcp_lport = next_port++;
+    tcp_snd = timer_ticks() * 64013u + 1000;
+    tcp_rh = tcp_rt = 0;
+    tcp_state = T_SYN;
+    for (int tries = 0; tries < 3; tries++) {
+        tcp_seg(0x02, NULL, 0);
+        for (int i = 0; i < timeout_ms / 3 / 10; i++) {
+            if (tcp_state == T_EST)
+                return 0;
+            if (tcp_state == T_RST)
+                break;
+            timer_sleep_ms(10);
+        }
+        if (tcp_state == T_RST)
+            break;
+    }
+    tcp_state = T_CLOSED;
+    return -1;
+}
+
+int net_tcp_send(const void *data, size_t len)
+{
+    const uint8_t *p = data;
+
+    if (tcp_state != T_EST && tcp_state != T_FIN)
+        return -1;
+    while (len) {
+        size_t n = len > 1400 ? 1400 : len;
+        tcp_seg(0x18, p, n);                             /* PSH + ACK */
+        tcp_snd += (uint32_t)n;
+        p += n;
+        len -= n;
+        timer_sleep_ms(10);                              /* no retransmit timer: do not outrun the receiver */
+    }
+    return 0;
+}
+
+/* Bytes received (>0), 0 when the other side closed and everything was read, -1 on timeout or reset. */
+int net_tcp_recv(void *buf, size_t max, int timeout_ms)
+{
+    uint8_t *b = buf;
+    uint32_t t0 = timer_ticks();
+
+    for (;;) {
+        uint32_t avail = tcp_rh - tcp_rt;
+        if (avail) {
+            size_t n = avail < max ? avail : max;
+            for (size_t i = 0; i < n; i++)
+                b[i] = tcp_rb[(tcp_rt + i) % TCP_RB];
+            tcp_rt += (uint32_t)n;
+            return (int)n;
+        }
+        if (tcp_state == T_FIN)
+            return 0;
+        if (tcp_state == T_RST || tcp_state == T_CLOSED || (int)(timer_ticks() - t0) * 10 >= timeout_ms)
+            return -1;
+        timer_sleep_ms(5);
+    }
+}
+
+void net_tcp_close(void)
+{
+    if (tcp_state == T_EST || tcp_state == T_FIN) {
+        tcp_seg(0x11, NULL, 0);                          /* FIN + ACK */
+        tcp_snd++;
+        timer_sleep_ms(50);
+    }
+    tcp_state = T_CLOSED;
+}
+
+/* Plain HTTP/1.0 GET. Returns the body length (headers removed), or -1. `status` receives the code. */
+int net_http_get(const char *host, uint16_t port, const char *path, char *out, size_t max, int *status)
+{
+    char req[256], tmp[512];
+    size_t got = 0, body = 0;
+    bool in_body = false;
+    uint32_t ip = net_resolve(host);
+
+    if (status) *status = 0;
+    if (!ip || net_tcp_connect(ip, port, 6000) < 0)
+        return -1;
+    ksnprintf(req, sizeof req, "GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: MyOS\r\nConnection: close\r\n\r\n", path, host);
+    net_tcp_send(req, strlen(req));
+    for (;;) {
+        int n = net_tcp_recv(tmp, sizeof tmp, 6000);
+        if (n <= 0)
+            break;
+        for (int i = 0; i < n; i++) {
+            if (!in_body) {                              /* collect headers in `out` until a blank line */
+                if (got < max - 1)
+                    out[got++] = tmp[i];
+                if (got >= 4 && !memcmp(out + got - 4, "\r\n\r\n", 4)) {
+                    if (status && got > 12)
+                        *status = katoi(out + 9);
+                    in_body = true;
+                    got = 0;
+                }
+            } else if (body < max - 1)
+                out[body++] = tmp[i];
+        }
+    }
+    net_tcp_close();
+    out[body] = 0;
+    return in_body ? (int)body : -1;
 }

@@ -50,6 +50,13 @@ int  net_udp_listen(uint16_t port, void (*cb)(uint32_t src_ip, uint16_t src_port
 void net_format_ip(uint32_t ip, char *out, size_t n);
 bool net_parse_ip(const char *s, uint32_t *ip);
 
+/* TCP client (one connection at a time) and plain HTTP */
+int  net_tcp_connect(uint32_t ip, uint16_t port, int timeout_ms);    /* 0 or -1 */
+int  net_tcp_send(const void *data, size_t len);
+int  net_tcp_recv(void *buf, size_t max, int timeout_ms);            /* >0 bytes, 0 closed by peer, -1 timeout/reset */
+void net_tcp_close(void);
+int  net_http_get(const char *host, uint16_t port, const char *path, char *out, size_t max, int *status);
+
 /* NIC drivers (called by net_probe) */
 int e1000_probe(void);
 int virtio_net_probe(void);
