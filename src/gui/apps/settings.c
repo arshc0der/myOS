@@ -5,27 +5,57 @@
 #include "sys.h"
 #include "blockdev.h"
 #include "camera.h"
+#include "net.h"
+#include "sched.h"
 #include "vfs.h"
 #include "kprintf.h"
 #include "kstring.h"
 #include "kerror.h"
+#include "hw.h"
+#include "version.h"
+#include "pmm.h"
+#include "heap.h"
+#include "timer.h"
+#include "multiboot.h"
+#include "kernel.h"
 
 #define SIDE_W 140
 
-struct settings { int page; char pending[SYS_NAME_MAX]; };
+struct settings { int page; char pending[SYS_NAME_MAX]; int nap, sel_ap; struct wifi_ap ap[6]; int nbtd; struct bt_device btd[6]; };
 
-static const char *pages[] = { "Appearance", "Dock", "Pointer", "Display", "Date & Time", "Users", "Storage", "Devices" };
-enum { P_APP, P_DOCK, P_PTR, P_DISP, P_TIME, P_USERS, P_STORE, P_DEV, NPAGES };
-enum { D_ADDUSER = 1, D_ADDPW, D_CHPW, D_DELUSER };
+static const char *pages[] = { "Appearance", "Dock", "Pointer", "Display", "Date & Time", "Network", "Bluetooth", "Users", "Storage", "Devices",
+                               "Language", "Accessibility", "Keyboard", "Sound", "Privacy", "General", "Hardware" };
+enum { P_APP, P_DOCK, P_PTR, P_DISP, P_TIME, P_NET, P_BT, P_USERS, P_STORE, P_DEV, P_LANG, P_ACC, P_KBD, P_SND, P_PRIV, P_GEN, P_HW, NPAGES };
+enum { D_ADDUSER = 1, D_ADDPW, D_CHPW, D_DELUSER, D_WIFIPW, D_HOST, D_RESET_SET, D_RESET_ALL };
+
+static volatile int ping_ms = -3;                 /* -3 never run, -2 running, -1 no answer, >=0 round trip */
+
+static void ping_task(void *arg)
+{
+    struct netdev *d = net_default();
+    (void)arg;
+    ping_ms = (d && d->gw) ? net_ping(d->gw, 2000) : -1;
+}
 #define X0 (SIDE_W + 24)
 #define SEGW 330
 
+static struct settings st_store;
+
 static void settings_open(struct gui_window *w)
 {
-    static struct settings st;
+    st_store.page = 0;
+    w->priv = &st_store;
+}
 
-    st.page = 0;
-    w->priv = &st;
+void settings_show(const char *page)
+{
+    struct gui_window *w = gui_open_named("Settings");
+    if (!w)
+        return;
+    for (int i = 0; i < NPAGES; i++)
+        if (!strcmp(pages[i], page))
+            st_store.page = i;
+    gui_redraw();
 }
 
 static void heading(struct gfx_surface *s, int y, const char *text)
@@ -37,6 +67,50 @@ static void note(struct gfx_surface *s, int y, const char *text)
 {
     gfx_text(s, X0, y, text, gui_th->dim, GFX_TRANSPARENT, 1);
 }
+
+
+/* toggle row: label, description, switch on the right */
+static void trow(struct gfx_surface *s, int y, const char *label, const char *desc, bool on)
+{
+    gfx_text(s, X0, y + 2, label, gui_th->text, GFX_TRANSPARENT, 1);
+    gfx_text(s, X0, y + 18, desc, gui_th->dim, GFX_TRANSPARENT, 1);
+    gui_switch(s, X0 + SEGW + 20, y + 5, on);
+}
+static bool trow_hit(int x, int y, int y0) { return gui_hit(x, y, X0, y0 - 2, SEGW + 70, 38); }
+
+/* 3-column grid of buttons; returns index at (x,y) or -1 */
+static void grid_draw(struct gfx_surface *s, int y0, const char *const *names, int n, int sel)
+{
+    for (int i = 0; i < n; i++)
+        gui_button(s, X0 + (i % 3) * 138, y0 + (i / 3) * 30, 130, 24, names[i], i == sel);
+}
+static int grid_hit(int x, int y, int y0, int n)
+{
+    int c = (x - X0) / 138, r = (y - y0) / 30;
+    if (x < X0 || y < y0 || c > 2 || (x - X0) % 138 > 130 || (y - y0) % 30 > 24)
+        return -1;
+    return r * 3 + c < n ? r * 3 + c : -1;
+}
+
+static bool *pref_toggle(int page, int i)
+{
+    switch (page) {
+    case P_ACC: { bool *p[5] = { &sys_prefs.acc_reader, &sys_prefs.acc_magnify, &sys_prefs.acc_contrast, &sys_prefs.acc_kbd_pointer, &sys_prefs.acc_reduce_motion }; return i < 5 ? p[i] : NULL; }
+    case P_PRIV: { bool *p[4] = { &sys_prefs.priv_diag, &sys_prefs.priv_location, &sys_prefs.priv_analytics, &sys_prefs.require_password }; return i < 4 ? p[i] : NULL; }
+    case P_GEN: { bool *p[4] = { &sys_prefs.auto_updates, &sys_prefs.check_updates, &sys_prefs.voice, &sys_prefs.open_terminal }; return i < 4 ? p[i] : NULL; }
+    }
+    return NULL;
+}
+
+static void pref_apply(void)
+{
+    gui_prefs.accent = sys_prefs.acc_contrast ? GUI_ACCENTS - 1 : sys_prefs.accent;
+    gui_prefs.anim = !sys_prefs.acc_reduce_motion;
+    sys_prefs_save();
+    gui_refresh_theme();
+}
+
+static const char *const lay_names[5] = { "US English", "UK English", "German", "French", "Hindi" };
 
 static void size_text(char *out, size_t n, uint32_t sectors)
 {
@@ -178,6 +252,83 @@ static void settings_draw(struct gui_window *w)
             note(s, 336, "No MyFS disk: these settings are lost on restart.");
         break;
     }
+    case P_NET: {
+        struct netdev *nd = net_default();
+        heading(s, 54, "Ethernet");
+        gfx_text(s, X0, 70, net_status_text(), gui_th->text, GFX_TRANSPARENT, 1);
+        if (nd) {
+            char a[20], b[20], c[20];
+            ksnprintf(line, sizeof line, "Card      %s  %02x:%02x:%02x:%02x:%02x:%02x  link %s", nd->driver, nd->mac[0], nd->mac[1],
+                      nd->mac[2], nd->mac[3], nd->mac[4], nd->mac[5], nd->link ? "up" : "down");
+            gfx_text(s, X0, 92, line, gui_th->dim, GFX_TRANSPARENT, 1);
+            net_format_ip(nd->ip, a, sizeof a);
+            net_format_ip(nd->mask, b, sizeof b);
+            ksnprintf(line, sizeof line, "Address   %s   mask %s", a, b);
+            gfx_text(s, X0, 110, line, gui_th->dim, GFX_TRANSPARENT, 1);
+            net_format_ip(nd->gw, a, sizeof a);
+            net_format_ip(nd->dns, c, sizeof c);
+            ksnprintf(line, sizeof line, "Gateway   %s   DNS %s", a, c);
+            gfx_text(s, X0, 128, line, gui_th->dim, GFX_TRANSPARENT, 1);
+            ksnprintf(line, sizeof line, "Frames    %u received, %u sent", nd->rx_frames, nd->tx_frames);
+            gfx_text(s, X0, 146, line, gui_th->dim, GFX_TRANSPARENT, 1);
+        } else {
+            note(s, 92, "Supported cards: e1000 (QEMU default), virtio-net (UTM).");
+            note(s, 108, "Start QEMU with  -nic user,model=e1000  if none shows up.");
+        }
+        gui_button(s, X0, 170, 160, 28, net_busy() ? "Connecting..." : "Connect (DHCP)", false);
+        gui_button(s, X0 + 170, 170, 160, 28, "Ping gateway", false);
+        if (ping_ms == -2) note(s, 206, "Ping: waiting...");
+        else if (ping_ms >= 0) { ksnprintf(line, sizeof line, "Ping: reply in %d ms", ping_ms); note(s, 206, line); }
+        else if (ping_ms == -1) note(s, 206, "Ping: no answer");
+        heading(s, 240, "Wi-Fi");
+        if (wifi_count()) {
+            struct wifi_adapter *wa = wifi_get(0);
+            ksnprintf(line, sizeof line, "%s: %s", wa->name, wa->status ? wa->status(wa) : "ready");
+            gfx_text(s, X0, 258, line, gui_th->text, GFX_TRANSPARENT, 1);
+            gui_button(s, X0, 280, 120, 26, "Scan", false);
+            for (int i = 0; i < st->nap; i++) {
+                ksnprintf(line, sizeof line, "%s%s   signal %d%%", st->ap[i].ssid, st->ap[i].secured ? " (secured)" : "", st->ap[i].signal);
+                gui_sidebar_row(s, X0 - 10, 312 + i * 24, SEGW + 10, line, false);
+            }
+        } else {
+            char hw[4][40];
+            int nh = wifi_detect_hardware(hw, 4);
+            note(s, 258, "No Wi-Fi driver in MyOS (radios need vendor firmware).");
+            for (int i = 0; i < nh; i++) {
+                ksnprintf(line, sizeof line, "Found radio: %s", hw[i]);
+                gfx_text(s, X0, 276 + i * 16, line, gui_th->text, GFX_TRANSPARENT, 1);
+            }
+            if (!nh)
+                note(s, 276, "No Wi-Fi radio found (virtual machines use the wired card).");
+            note(s, 344, "Add a driver: see docs/NETWORK.md (wifi_register).");
+        }
+        break;
+    }
+    case P_BT: {
+        heading(s, 54, "Bluetooth");
+        if (bt_count()) {
+            gfx_text(s, X0, 70, bt_get(0)->name, gui_th->text, GFX_TRANSPARENT, 1);
+            gui_button(s, X0, 94, 120, 26, "Scan", false);
+            for (int i = 0; i < st->nbtd; i++) {
+                ksnprintf(line, sizeof line, "%s%s", st->btd[i].name, st->btd[i].connected ? "   connected" : st->btd[i].paired ? "   paired" : "");
+                gui_sidebar_row(s, X0 - 10, 130 + i * 24, SEGW + 10, line, false);
+            }
+        } else {
+            char hw[4][40];
+            int nh = bt_detect_hardware(hw, 4);
+            note(s, 70, "No Bluetooth driver in MyOS.");
+            note(s, 86, "A driver needs the HCI protocol over USB bulk transfers,");
+            note(s, 102, "which the USB stack does not have yet.");
+            for (int i = 0; i < nh; i++) {
+                ksnprintf(line, sizeof line, "Found adapter: %s", hw[i]);
+                gfx_text(s, X0, 130 + i * 16, line, gui_th->text, GFX_TRANSPARENT, 1);
+            }
+            if (!nh)
+                note(s, 130, "No Bluetooth adapter found.");
+            note(s, 200, "Add a driver: see docs/NETWORK.md (bt_register).");
+        }
+        break;
+    }
     case P_USERS: {
         heading(s, 54, "Accounts");
         int y = 74;
@@ -225,6 +376,105 @@ static void settings_draw(struct gui_window *w)
         gfx_text(s, X0, y + 16, line, gui_th->text, GFX_TRANSPARENT, 1);
         break;
     }
+    case P_LANG: {
+        char l[80];
+        heading(s, 54, "Language");
+        grid_draw(s, 70, sys_languages, sys_language_count(), sys_prefs.language);
+        heading(s, 168, "Country or region");
+        grid_draw(s, 184, sys_countries, sys_country_count(), sys_prefs.country);
+        ksnprintf(l, sizeof l, "Time zone %s   Date %s   Clock %s", sys_prefs.city,
+                  sys_prefs.date_format == 0 ? "DD/MM/YYYY" : sys_prefs.date_format == 1 ? "MM/DD/YYYY" : "YYYY-MM-DD",
+                  sys_prefs.clock24 ? "24-hour" : "12-hour");
+        gfx_text(s, X0, 316, l, gui_th->text, GFX_TRANSPARENT, 1);
+        note(s, 336, "Language is saved. Menus are English in this version.");
+        note(s, 352, "Time zone, date format and clock can be changed on Date & Time.");
+        break;
+    }
+    case P_ACC: {
+        static const char *const lab[5] = { "Screen reader", "Screen magnification", "High contrast", "Keyboard navigation", "Reduce motion" };
+        static const char *const dsc[5] = { "Saved only: no speech output yet", "Saved only: zoom not available yet", "Black and white interface (works now)",
+            "Move the pointer with Alt + arrow keys", "Turn off animations (works now)" };
+        for (int i = 0; i < 5; i++)
+            trow(s, 60 + i * 46, lab[i], dsc[i], *pref_toggle(P_ACC, i));
+        break;
+    }
+    case P_KBD: {
+        heading(s, 54, "Keyboard layout");
+        grid_draw(s, 70, lay_names, 5, sys_prefs.kbd_layout);
+        note(s, 140, "The layout is saved. Key mapping is US English for now.");
+        gfx_text(s, X0, 176, "Detected: keyboard (PS/2 or USB HID)", gui_th->text, GFX_TRANSPARENT, 1);
+        note(s, 198, "Pointer: see the Pointer page. Mouse present:");
+        gfx_text(s, X0 + 330, 198, mouse_present() ? "yes" : "no", gui_th->text, GFX_TRANSPARENT, 1);
+        break;
+    }
+    case P_SND: {
+        char l[40];
+        heading(s, 54, "Output volume");
+        gui_slider(s, X0, 78, SEGW, sys_prefs.muted ? 0 : sys_prefs.volume, 100);
+        ksnprintf(l, sizeof l, "%d%%", sys_prefs.muted ? 0 : sys_prefs.volume);
+        gfx_text(s, X0 + SEGW + 12, 76, l, gui_th->text, GFX_TRANSPARENT, 1);
+        trow(s, 110, "Mute", "Silence all sound", sys_prefs.muted);
+        note(s, 170, "MyOS has no audio driver yet: volume and mute are saved only.");
+        break;
+    }
+    case P_PRIV: {
+        static const char *const lab[4] = { "Share diagnostic data", "Location services", "Share usage analytics", "Require password at login" };
+        static const char *const dsc[4] = { "Nothing is sent: no network client yet", "Time zone based location for apps", "Anonymous usage statistics", "Off = log in with one click" };
+        for (int i = 0; i < 4; i++)
+            trow(s, 60 + i * 46, lab[i], dsc[i], *pref_toggle(P_PRIV, i));
+        note(s, 262, "Passwords are stored as salted hashes (teaching grade).");
+        break;
+    }
+    case P_GEN: {
+        static const char *const lab[4] = { "Install updates automatically", "Check for updates", "Voice assistant", "Open Terminal after login" };
+        static const char *const dsc[4] = { "Saved only: no update server yet", "When connected to a network", "Saved only: no speech support yet", "Terminal window at startup" };
+        char l[96];
+        heading(s, 54, "Computer name");
+        ksnprintf(l, sizeof l, "%s   (%s.local)", sys_prefs.hostname, sys_prefs.hostname);
+        gfx_text(s, X0, 72, l, gui_th->text, GFX_TRANSPARENT, 1);
+        gui_button(s, X0 + SEGW - 100, 66, 100, 24, "Rename", false);
+        for (int i = 0; i < 4; i++)
+            trow(s, 100 + i * 42, lab[i], dsc[i], *pref_toggle(P_GEN, i));
+        heading(s, 272, "Startup");
+        ksnprintf(l, sizeof l, "Boot loader: %s", boot_info.loader[0] ? boot_info.loader : "unknown");
+        gfx_text(s, X0, 288, l, gui_th->text, GFX_TRANSPARENT, 1);
+        ksnprintf(l, sizeof l, "Boot options: %.60s", boot_info.cmdline[0] ? boot_info.cmdline : "(none)");
+        gfx_text(s, X0, 304, l, gui_th->dim, GFX_TRANSPARENT, 1);
+        note(s, 320, "Edit boot options in grub.cfg (for example nosetup skips setup).");
+        heading(s, 350, "Factory reset");
+        gui_button(s, X0, 368, 190, 28, "Reset settings...", false);
+        gui_button(s, X0 + 200, 368, 220, 28, "Erase everything...", false);
+        note(s, 404, "Both restart the computer and run the Setup Assistant again.");
+        break;
+    }
+    case P_HW: {
+        char l[96], brand[49];
+        struct heap_stats hs;
+        struct pci_device pd[64];
+        uint32_t up = timer_uptime_sec();
+        heap_get_stats(&hs);
+        if (!cpu_brand(brand)) strlcpy(brand, "x86 processor", sizeof brand);
+        heading(s, 54, "Processor");
+        gfx_text(s, X0, 70, brand, gui_th->text, GFX_TRANSPARENT, 1);
+        heading(s, 100, "Memory");
+        ksnprintf(l, sizeof l, "%u MB installed", pmm_total_pages() / 256);
+        gfx_text(s, X0, 116, l, gui_th->text, GFX_TRANSPARENT, 1);
+        ksnprintf(l, sizeof l, "Kernel heap: %u KB used of %u KB, %u allocations", hs.used_bytes / 1024, hs.total_bytes / 1024, hs.alloc_count);
+        gfx_text(s, X0, 134, l, gui_th->dim, GFX_TRANSPARENT, 1);
+        heading(s, 164, "Display");
+        ksnprintf(l, sizeof l, "%d x %d, %d Hz", gui_screen_w(), gui_screen_h(), sys_prefs.refresh_hz);
+        gfx_text(s, X0, 180, l, gui_th->text, GFX_TRANSPARENT, 1);
+        heading(s, 210, "Devices");
+        ksnprintf(l, sizeof l, "%d PCI devices, %d disks, %d network adapters", pci_scan(pd, 64), blockdev_count(), net_probe());
+        gfx_text(s, X0, 226, l, gui_th->text, GFX_TRANSPARENT, 1);
+        heading(s, 256, "Uptime");
+        ksnprintf(l, sizeof l, "%u h %u min %u s", up / 3600, up / 60 % 60, up % 60);
+        gfx_text(s, X0, 272, l, gui_th->text, GFX_TRANSPARENT, 1);
+        heading(s, 302, "System");
+        ksnprintf(l, sizeof l, "MyOS %s   computer name %s", MYOS_VERSION, sys_prefs.hostname);
+        gfx_text(s, X0, 318, l, gui_th->text, GFX_TRANSPARENT, 1);
+        break;
+    }
     }
 }
 
@@ -254,13 +504,13 @@ static void settings_click(struct gui_window *w, int x, int y, int buttons)
         if ((i = seg_hit(x, y, 80, 2)) >= 0) {
             gui_set_dark(i == 1);
         } else if ((i = seg_hit(x, y, 134, 2)) >= 0) {                /* style: colourful or monochrome */
-            gui_prefs.accent = i == 1 ? GUI_ACCENTS - 1 : 0;
+            gui_prefs.accent = i == 1 ? GUI_ACCENTS - 1 : 0; sys_prefs.accent = gui_prefs.accent; sys_prefs_save();
             gui_prefs.color_buttons = i == 0;
             gui_refresh_theme();
         } else if (y >= 187 && y < 220 && x >= X0) {
             int k = (x - X0) / 42;
             if (k >= 0 && k < GUI_ACCENTS) {
-                gui_prefs.accent = k;
+                { gui_prefs.accent = k; sys_prefs.accent = k; sys_prefs_save(); }
                 gui_refresh_theme();
             }
         } else if ((i = seg_hit(x, y, 262, 2)) >= 0) {
@@ -311,11 +561,79 @@ static void settings_click(struct gui_window *w, int x, int y, int buttons)
                 sys_place_set(i);
         }
         break;
+    case P_NET:
+        if (gui_hit(x, y, X0, 170, 160, 28))
+            net_start_async();
+        else if (gui_hit(x, y, X0 + 170, 170, 160, 28) && net_is_up()) {
+            ping_ms = -2;
+            task_create("ping", ping_task, NULL);
+        } else if (wifi_count() && gui_hit(x, y, X0, 280, 120, 26)) {
+            struct wifi_adapter *wa = wifi_get(0);
+            st->nap = wa->scan ? wa->scan(wa, st->ap, 6) : 0;
+            if (st->nap < 0) st->nap = 0;
+        } else if (wifi_count() && y >= 312 && x >= X0 - 10) {
+            int k = (y - 312) / 24;
+            if (k < st->nap) {
+                st->sel_ap = k;
+                if (st->ap[k].secured)
+                    gui_prompt(w, "Wi-Fi password", "", D_WIFIPW);
+                else
+                    wifi_get(0)->connect(wifi_get(0), st->ap[k].ssid, "");
+            }
+        }
+        break;
+    case P_BT:
+        if (bt_count() && gui_hit(x, y, X0, 94, 120, 26)) {
+            struct bt_adapter *ba = bt_get(0);
+            st->nbtd = ba->scan ? ba->scan(ba, st->btd, 6) : 0;
+            if (st->nbtd < 0) st->nbtd = 0;
+        } else if (bt_count() && y >= 130 && x >= X0 - 10) {
+            int k = (y - 130) / 24;
+            struct bt_adapter *ba = bt_get(0);
+            if (k < st->nbtd) {
+                if (!st->btd[k].paired && ba->pair) ba->pair(ba, st->btd[k].addr);
+                else if (ba->connect) ba->connect(ba, st->btd[k].addr);
+            }
+        }
+        break;
     case P_USERS:
         if (gui_hit(x, y, X0, 290, 120, 28))
             gui_prompt(w, "New user name", "", D_ADDUSER);
         else if (gui_hit(x, y, X0 + 130, 290, 170, 28) && users_current())
             gui_prompt(w, "New password for you", "", D_CHPW);
+        break;
+    default:
+        break;
+    }
+    switch (st->page) {
+    case P_LANG:
+        if ((i = grid_hit(x, y, 70, sys_language_count())) >= 0) { sys_prefs.language = i; sys_prefs_save(); }
+        else if ((i = grid_hit(x, y, 184, sys_country_count())) >= 0) { sys_country_apply(i); sys_prefs_save(); }
+        break;
+    case P_ACC:
+    case P_PRIV:
+        for (i = 0; i < (st->page == P_ACC ? 5 : 4); i++)
+            if (trow_hit(x, y, 60 + i * 46)) { bool *p = pref_toggle(st->page, i); *p = !*p; pref_apply(); }
+        break;
+    case P_KBD:
+        if ((i = grid_hit(x, y, 70, 5)) >= 0) { sys_prefs.kbd_layout = i; sys_prefs_save(); }
+        break;
+    case P_SND:
+        if (gui_hit(x, y, X0, 74, SEGW, 24)) { sys_prefs.volume = gui_slider_value(x, X0, SEGW, 100); sys_prefs.muted = false; sys_prefs_save(); }
+        else if (trow_hit(x, y, 110)) { sys_prefs.muted = !sys_prefs.muted; sys_prefs_save(); }
+        break;
+    case P_GEN:
+        if (gui_hit(x, y, X0 + SEGW - 100, 66, 100, 24))
+            gui_prompt(w, "Computer name", sys_prefs.hostname, D_HOST);
+        else if (gui_hit(x, y, X0, 368, 190, 28))
+            gui_confirm(w, "Reset settings", "Restore default settings and run the Setup Assistant again? Accounts and files are kept. The computer restarts.", D_RESET_SET);
+        else if (gui_hit(x, y, X0 + 200, 368, 220, 28))
+            gui_confirm(w, "Erase everything", "Delete all accounts, home folders and settings, then restart into the Setup Assistant? This cannot be undone.", D_RESET_ALL);
+        else
+            for (i = 0; i < 4; i++)
+                if (trow_hit(x, y, 100 + i * 42)) { bool *p = pref_toggle(P_GEN, i); *p = !*p; pref_apply(); }
+        break;
+    default:
         break;
     }
     gui_redraw();
@@ -329,6 +647,18 @@ static void settings_dialog(struct gui_window *w, int id, bool ok, const char *t
     if (!ok)
         return;
     switch (id) {
+    case D_HOST:
+        if (sys_hostname_ok(text)) { strlcpy(sys_prefs.hostname, text, sizeof sys_prefs.hostname); sys_prefs_save(); }
+        else gui_alert(w, "Computer name", "Use letters, digits and - only (23 characters at most).");
+        break;
+    case D_RESET_SET:
+        sys_factory_reset(false);
+        system_reboot();
+        break;
+    case D_RESET_ALL:
+        sys_factory_reset(true);
+        system_reboot();
+        break;
     case D_ADDUSER:
         if (!text[0] || strlen(text) >= SYS_NAME_MAX) {
             gui_alert(w, "Users", "Please type a short name (letters and digits).");
@@ -343,6 +673,10 @@ static void settings_dialog(struct gui_window *w, int id, bool ok, const char *t
             gui_alert(w, "Users", "That user already exists.");
         else if (rc < 0)
             gui_alert(w, "Users", "Could not create the user (use letters and digits only).");
+        break;
+    case D_WIFIPW:
+        if (wifi_count() && st->sel_ap < st->nap)
+            wifi_get(0)->connect(wifi_get(0), st->ap[st->sel_ap].ssid, text);
         break;
     case D_CHPW:
         if (users_current())
@@ -368,7 +702,7 @@ static void settings_tick(struct gui_window *w)
 {
     struct settings *st = w->priv;
 
-    if (st && (st->page == P_DEV || st->page == P_TIME || st->page == P_STORE))
+    if (st && (st->page == P_HW || st->page == P_DEV || st->page == P_TIME || st->page == P_STORE || st->page == P_NET))
         gui_redraw();                                /* keep lists and the clock fresh */
 }
 
@@ -386,7 +720,7 @@ static void settings_icon(struct gfx_surface *s, int x, int y, int sz, uint32_t 
 }
 
 static const struct gui_app settings_app = {
-    .name = "Settings", .title = "Settings", .cw = 580, .ch = 410, .single = true, .dock = 50,
+    .name = "Settings", .title = "Settings", .cw = 600, .ch = 500, .single = true, .dock = 50,
     .open = settings_open, .draw = settings_draw, .click = settings_click, .key = settings_key,
     .tick = settings_tick, .dialog = settings_dialog, .icon = settings_icon,
 };

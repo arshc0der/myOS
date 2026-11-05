@@ -580,6 +580,20 @@ static const char *kind_name(const struct usb_dev *d)
     return d->is_hub ? "hub" : "no supported interface";
 }
 
+/* n-th USB device with this device class (used to spot Bluetooth dongles, class 0xE0) */
+bool usb_find_class(uint8_t cls, int n, uint16_t *vid, uint16_t *pid)
+{
+    int cnt = 0;
+
+    for (int i = 0; i < USB_MAX_DEVS; i++)
+        if (devs[i].used && devs[i].cls == cls && cnt++ == n) {
+            *vid = devs[i].vid;
+            *pid = devs[i].pid;
+            return true;
+        }
+    return false;
+}
+
 int usb_describe(int index, char *buf, size_t n)
 {
     int cnt = 0;

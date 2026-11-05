@@ -11,6 +11,7 @@
 #include "guiapi.h"
 #include "sys.h"
 #include "image.h"
+#include "net.h"
 #include "camera.h"
 #include "vfs.h"
 #include "gfx.h"
@@ -47,15 +48,16 @@ static int nz;
 
 static struct gfx_surface *wallpaper;
 static int sw, sh;
+static void win_resize(struct gui_window *w, int cw, int ch);
 static int mx, my;
 static uint8_t mbuttons;
 static bool running, animating, need_redraw;
 static bool ptr_mode;
 
 /* menus */
-enum { M_NONE, M_APPLE, M_APP, M_POPUP };
+enum { M_NONE, M_APPLE, M_APP, M_POPUP, M_NAME, M_WINDOW, M_STATUS };
 static int menu_open;
-struct mitem { char label[32]; int code; bool dis; };   /* code: >=0 open app, <0 special, -9 separator */
+struct mitem { char label[48]; int code; bool dis; };   /* code: >=0 open app, <0 special, -9 separator */
 static struct mitem mitems[MAX_APPS + 8];               /* the MyOS (Apple) menu */
 static int nmitems;
 /* the dropdown that is open right now: MyOS menu, an app menu from the menu bar, or a popup */
@@ -83,6 +85,17 @@ static int clip_kind;
 #define MI_RESTART -2
 #define MI_SHUTDOWN -3
 #define MI_SEP -9
+#define MI_APP_ABOUT -10
+#define MI_APP_HIDE -11
+#define MI_APP_QUIT -12
+#define MI_WIN_MIN -20
+#define MI_WIN_ZOOM -21
+#define MI_WIN_FS -22
+#define MI_WIN_CLOSE -23
+#define MI_NET_ON -30
+#define MI_NET_SETTINGS -31
+#define MI_BT_SETTINGS -32
+#define MI_WIN_FOCUS -200               /* MI_WIN_FOCUS - window index */
 #define MENU_W 230
 #define MENU_ITEM_H 26
 
@@ -304,6 +317,8 @@ void gui_refresh_theme(void)
 void gui_set_dark(bool dark)
 {
     gui_prefs.dark = dark;
+    sys_prefs.dark = dark;
+    sys_prefs_save();
     gui_refresh_theme();
 }
 
@@ -459,11 +474,16 @@ static void draw_dock(struct gfx_surface *s)
         const struct gui_app *a = apps[dock_idx[i]];
         int ix = dock_icon_x(i);
         bool hot = mx >= ix - 4 && mx < ix + DOCK_ICON + 4 && my >= y - 6 && my < y + h;
-        int target = hot ? 8 : 0;
+        bool near = mx >= x && mx < x + w && my >= y - 12;
+        int dist = mx - (ix + DOCK_ICON / 2);
+        if (dist < 0)
+            dist = -dist;
+        int target = near && dist < 96 ? 16 * (96 - dist) / 96 : 0;    /* neighbours grow too, like macOS */
         if (!gui_prefs.anim)
             dock_sc[i] = target;
         else if (dock_sc[i] != target) {
-            dock_sc[i] += dock_sc[i] < target ? 2 : -2;
+            int diff = target - dock_sc[i], step = diff / 2;
+            dock_sc[i] += step ? step : (diff > 0 ? 1 : -1);
             animating = true;
         }
         int sz = DOCK_ICON + dock_sc[i];
@@ -497,7 +517,13 @@ static void draw_window(struct gfx_surface *s, struct gui_window *w, bool active
 {
     int ow = outer_w(w), oh = outer_h(w), savey = w->y;
 
-    if (gui_prefs.anim) {                               /* open animation: slide up, 200 ms */
+    if (w->fullscreen) {                                /* no chrome: only the client area */
+        if (w->app->draw)
+            w->app->draw(w);
+        gfx_blit(s, 0, 0, w->surf, 0, 0, w->cw, w->ch);
+        return;
+    }
+    if (gui_prefs.anim && !w->maximized) {                               /* open animation: slide up, 200 ms */
         int t = (int)(timer_ticks() - w->born);
         if (t < 20) {
             int rem = 20 - t;
@@ -505,7 +531,7 @@ static void draw_window(struct gfx_surface *s, struct gui_window *w, bool active
             animating = true;
         }
     }
-    for (int k = 5; k >= 0; k--)
+    for (int k = active ? 5 : 2; k >= 0; k--)               /* big soft shadow only for the front window */
         gfx_fill_round_rect(s, w->x - k * 2, w->y + 6 - k, ow + k * 4, oh + k * 3, 14,
                             gfx_blend(gfx_get_pixel(s, w->x + ow / 2, MIN(sh - 1, w->y + oh + 4)), GFX_BLACK, 9));
     gfx_fill_round_rect(s, w->x - 1, w->y - 1, ow + 2, oh + 2, 11, gui_th->line);
@@ -518,6 +544,18 @@ static void draw_window(struct gfx_surface *s, struct gui_window *w, bool active
     for (int i = 0; i < 3; i++) {
         uint32_t c = !active ? gui_th->line : (gui_prefs.color_buttons ? colors[i] : gui_th->tl_mono[i]);
         gfx_fill_circle(s, w->x + 18 + i * 20, w->y + 15, 6, c);
+    }
+    if (mx >= w->x + 8 && mx < w->x + 72 && my >= w->y + 3 && my < w->y + 27) {     /* hovering the buttons: show symbols */
+        uint32_t g = GFX_RGB(70, 20, 16);
+        int cy = w->y + 15, c0 = w->x + 18, c1 = w->x + 38, c2 = w->x + 58;
+        gfx_line(s, c0 - 2, cy - 2, c0 + 2, cy + 2, g);                 /* close: x */
+        gfx_line(s, c0 - 2, cy + 2, c0 + 2, cy - 2, g);
+        gfx_hline(s, c1 - 3, cy, 7, g);                                 /* minimize: - */
+        if (w->maximized) {                                             /* restore: two squares */
+            gfx_rect(s, c2 - 3, cy - 1, 5, 5, g);
+            gfx_rect(s, c2 - 1, cy - 3, 5, 5, g);
+        } else
+            gfx_rect(s, c2 - 3, cy - 3, 7, 7, g);                       /* zoom: square */
     }
     int tw = gfx_text_width(w->title, 1);
     gfx_text(s, w->x + (ow - tw) / 2, w->y + 11, w->title, active ? gui_th->text : gui_th->dim, GFX_TRANSPARENT, 1);
@@ -619,6 +657,74 @@ static void open_app_menu(struct gui_window *w, int which)
     menu_open = M_APP;
 }
 
+static int name_x, name_w, win_x, win_w, net_x = 9999, bt_x = 9999, srch_x = 9999;
+
+static void open_name_menu(struct gui_window *f)
+{
+    char l[48];
+
+    dd.n = 0;
+    dd.owner = -1;
+    dd.x = name_x;
+    dd.y = MENUBAR_H + 2;
+    ksnprintf(l, sizeof l, "About %s", f->app->name);
+    dd_add(l, MI_APP_ABOUT);
+    dd_add("-", 0);
+    ksnprintf(l, sizeof l, "Hide %s", f->app->name);
+    dd_add(l, MI_APP_HIDE);
+    ksnprintf(l, sizeof l, "Quit %s", f->app->name);
+    dd_add(l, MI_APP_QUIT);
+    dd_size(180);
+    menu_open = M_NAME;
+}
+
+static void open_window_menu(struct gui_window *f)
+{
+    dd.n = 0;
+    dd.owner = -1;
+    dd.x = win_x;
+    dd.y = MENUBAR_H + 2;
+    dd_add("Minimize", MI_WIN_MIN);
+    dd_add(f->maximized ? "Restore" : "Zoom", MI_WIN_ZOOM);
+    dd_add(f->fullscreen ? "Exit Full Screen  (F11)" : "Enter Full Screen  (F11)", MI_WIN_FS);
+    dd_add("Close Window", MI_WIN_CLOSE);
+    dd_add("-", 0);
+    for (int i = 0; i < MAX_WINDOWS; i++)
+        if (wins[i].used && !wins[i].want_close) {
+            char l[48];
+            ksnprintf(l, sizeof l, "%s%s", &wins[i] == f ? "> " : "  ", wins[i].title);
+            dd_add(l, MI_WIN_FOCUS - i);
+        }
+    dd_size(200);
+    menu_open = M_WINDOW;
+}
+
+static void open_status_menu(int which)
+{
+    char l[48];
+
+    dd.n = 0;
+    dd.owner = -1;
+    dd.which = which;
+    dd.x = (which == 0 ? net_x : bt_x) - 6;
+    dd.y = MENUBAR_H + 2;
+    if (which == 0) {
+        ksnprintf(l, sizeof l, "~%s", net_status_text());
+        dd_add(l, 0);
+        dd_add("-", 0);
+        if (!net_is_up() && !net_busy())
+            dd_add("Turn Network On", MI_NET_ON);
+        dd_add("Network Settings...", MI_NET_SETTINGS);
+    } else {
+        ksnprintf(l, sizeof l, "~Bluetooth: %d adapter(s)", bt_count());
+        dd_add(l, 0);
+        dd_add("-", 0);
+        dd_add("Bluetooth Settings...", MI_BT_SETTINGS);
+    }
+    dd_size(220);
+    menu_open = M_STATUS;
+}
+
 void gui_popup(struct gui_window *w, int x, int y, const struct gui_menu_item *items, int n)
 {
     dd.n = 0;
@@ -694,14 +800,60 @@ static void menu_action(int i)
         gui_redraw();
         return;
     }
+    struct gui_window *fw = focused();
     if (code >= 0)
         launch(apps[code]);
+    else if (code == MI_APP_ABOUT)
+        gui_open_named("About");
+    else if (code == MI_APP_HIDE && fw) {
+        for (int k = 0; k < MAX_WINDOWS; k++)
+            if (wins[k].used && wins[k].app == fw->app)
+                wins[k].minimized = true;
+    } else if (code == MI_APP_QUIT && fw) {
+        for (int k = 0; k < MAX_WINDOWS; k++)
+            if (wins[k].used && wins[k].app == fw->app)
+                gui_close(&wins[k]);
+    } else if (code == MI_WIN_MIN && fw)
+        gui_minimize(fw);
+    else if (code == MI_WIN_ZOOM && fw)
+        gui_maximize(fw);
+    else if (code == MI_WIN_FS && fw)
+        gui_fullscreen(fw);
+    else if (code == MI_WIN_CLOSE && fw)
+        gui_close(fw);
+    else if (code <= MI_WIN_FOCUS && MI_WIN_FOCUS - code < MAX_WINDOWS) {
+        int k = MI_WIN_FOCUS - code;
+        if (wins[k].used) {
+            wins[k].minimized = false;
+            bring_to_front(k);
+        }
+    } else if (code == MI_NET_ON)
+        net_start_async();
+    else if (code == MI_NET_SETTINGS)
+        settings_show("Network");
+    else if (code == MI_BT_SETTINGS)
+        settings_show("Bluetooth");
     else if (code == MI_QUIT)
         gui_quit();
     else if (code == MI_SHUTDOWN)
         system_poweroff();
     else if (code == MI_RESTART)
         system_reboot();
+}
+
+static void draw_bt_icon(struct gfx_surface *s, int x, int y, uint32_t c)
+{
+    gfx_line(s, x + 4, y, x + 4, y + 12, c);
+    gfx_line(s, x + 4, y, x + 8, y + 3, c);
+    gfx_line(s, x + 8, y + 3, x, y + 9, c);
+    gfx_line(s, x, y + 3, x + 8, y + 9, c);
+    gfx_line(s, x + 8, y + 9, x + 4, y + 12, c);
+}
+
+static void draw_net_icon(struct gfx_surface *s, int x, int y, uint32_t c)
+{
+    for (int i = 0; i < 4; i++)                          /* four signal bars */
+        gfx_fill_rect(s, x + i * 5, y + 11 - (i * 3 + 2), 3, i * 3 + 2, c);
 }
 
 static void draw_menubar(struct gfx_surface *s)
@@ -713,9 +865,14 @@ static void draw_menubar(struct gfx_surface *s)
     gfx_draw_logo(s, 14, 6, 16);
     struct gui_window *f = focused();
     const char *name = f ? f->app->name : "Finder";
+    int nw = gfx_text_width(name, 1);
+    name_x = 46;
+    name_w = f ? nw + 12 : 0;
+    if (menu_open == M_NAME)
+        gfx_fill_round_rect(s, name_x, 3, name_w, MENUBAR_H - 6, 6, gui_th->sel);
     gfx_text(s, 52, 10, name, gui_th->text, GFX_TRANSPARENT, 1);      /* bold: draw twice */
     gfx_text(s, 53, 10, name, gui_th->text, GFX_TRANSPARENT, 1);
-    int mxp = 52 + gfx_text_width(name, 1) + 24;
+    int mxp = 52 + nw + 24;
     for (int i = 0; i < 8; i++)
         appmenu_w[i] = 0;
     if (f && f->app->menus)
@@ -728,6 +885,15 @@ static void draw_menubar(struct gfx_surface *s)
             gfx_text(s, mxp, 10, f->app->menus[i].title, gui_th->text, GFX_TRANSPARENT, 1);
             mxp += tw + 24;
         }
+    win_w = 0;
+    if (f) {                                             /* every app gets a Window menu, like macOS */
+        int tw = gfx_text_width("Window", 1);
+        win_x = mxp - 10;
+        win_w = tw + 20;
+        if (menu_open == M_WINDOW)
+            gfx_fill_round_rect(s, win_x, 3, win_w, MENUBAR_H - 6, 6, gui_th->sel);
+        gfx_text(s, mxp, 10, "Window", gui_th->text, GFX_TRANSPARENT, 1);
+    }
     if (ptr_mode)
         gfx_text(s, sw / 2 - 150, 10, "POINTER MODE: arrows move, Enter clicks, F2/Esc exits",
                  gui_th->dim, GFX_TRANSPARENT, 1);
@@ -738,18 +904,26 @@ static void draw_menubar(struct gfx_surface *s)
         ksnprintf(clock, sizeof clock, "%02u:%02u", tm[3], tm[4]);
     else
         ksnprintf(clock, sizeof clock, "%u:%02u %s", tm[3] % 12 ? tm[3] % 12 : 12, tm[4], tm[3] >= 12 ? "PM" : "AM");
-    gfx_text(s, sw - gfx_text_width(clock, 1) - 14, 10, clock, gui_th->text, GFX_TRANSPARENT, 1);
+    int cw = gfx_text_width(clock, 1);
+    gfx_text(s, sw - cw - 14, 10, clock, gui_th->text, GFX_TRANSPARENT, 1);
+    /* right side, from the clock leftwards: Spotlight, network, Bluetooth, (frame rate) */
+    srch_x = sw - cw - 44;
+    net_x = srch_x - 48;
+    bt_x = net_x - 34;
+    int cy = 12;
+    gfx_fill_circle(s, srch_x, cy, 5, gui_th->text);
+    gfx_fill_circle(s, srch_x, cy, 3, gui_th->menu);
+    gfx_line(s, srch_x + 4, cy + 4, srch_x + 8, cy + 8, gui_th->text);
+    gfx_line(s, srch_x + 5, cy + 4, srch_x + 9, cy + 8, gui_th->text);
+    if (menu_open == M_STATUS)
+        gfx_fill_round_rect(s, (dd.which == 0 ? net_x : bt_x) - 8, 3, dd.which == 0 ? 36 : 26, MENUBAR_H - 6, 6, gui_th->sel);
+    draw_net_icon(s, net_x, 6, net_is_up() ? gui_th->text : gui_th->dim);
+    draw_bt_icon(s, bt_x, 6, bt_count() ? gui_th->text : gui_th->dim);
     if (gui_prefs.show_fps) {
         char fp[16];
         ksnprintf(fp, sizeof fp, "%d fps", gui_fps());
-        gfx_text(s, sw - gfx_text_width(clock, 1) - 100, 10, fp, gui_th->dim, GFX_TRANSPARENT, 1);
+        gfx_text(s, bt_x - gfx_text_width(fp, 1) - 18, 10, fp, gui_th->dim, GFX_TRANSPARENT, 1);
     }
-    /* magnifier = Spotlight */
-    int cx = sw - gfx_text_width(clock, 1) - 44, cy = 12;
-    gfx_fill_circle(s, cx, cy, 5, gui_th->text);
-    gfx_fill_circle(s, cx, cy, 3, gui_th->menu);
-    gfx_line(s, cx + 4, cy + 4, cx + 8, cy + 8, gui_th->text);
-    gfx_line(s, cx + 5, cy + 4, cx + 9, cy + 8, gui_th->text);
 }
 
 /* ---- dialogs ---- */
@@ -881,6 +1055,12 @@ bool gui_set_resolution(int w, int h)
     my = MAX(0, MIN(sh - 1, my));
     for (int i = 0; i < MAX_WINDOWS; i++)
         if (wins[i].used) {
+            if (wins[i].fullscreen) {
+                win_resize(&wins[i], sw, sh);
+                wins[i].x = -1;
+                wins[i].y = -TITLE_H;
+                continue;
+            }
             if (wins[i].maximized) {
                 gui_resize(&wins[i], sw - 2, sh - MENUBAR_H - TITLE_H - 2 - 84);
                 wins[i].x = 0;
@@ -900,6 +1080,11 @@ void gui_resize(struct gui_window *w, int cw, int ch)
 {
     cw = MAX(160, MIN(cw, sw - 2));
     ch = MAX(100, MIN(ch, sh - MENUBAR_H - TITLE_H - 2));
+    win_resize(w, cw, ch);
+}
+
+static void win_resize(struct gui_window *w, int cw, int ch)
+{
     struct gfx_surface *n = gfx_surface_create(cw, ch);
     if (!n)
         return;
@@ -912,6 +1097,8 @@ void gui_resize(struct gui_window *w, int cw, int ch)
 
 void gui_maximize(struct gui_window *w)
 {
+    if (w->fullscreen)
+        return;
     if (!w->maximized) {
         w->rx = w->x;
         w->ry = w->y;
@@ -926,6 +1113,35 @@ void gui_maximize(struct gui_window *w)
         gui_resize(w, w->rcw, w->rch);
         w->x = w->rx;
         w->y = w->ry;
+    }
+    w->born = 0;
+    gui_redraw();
+}
+
+void gui_fullscreen(struct gui_window *w)
+{
+    if (!w->fullscreen) {
+        if (!w->maximized) {
+            w->rx = w->x;
+            w->ry = w->y;
+            w->rcw = w->cw;
+            w->rch = w->ch;
+        }
+        w->fullscreen = true;
+        win_resize(w, sw, sh);
+        w->x = -1;                                      /* the client area lands exactly on 0,0 */
+        w->y = -TITLE_H;
+    } else {
+        w->fullscreen = false;
+        if (w->maximized) {
+            win_resize(w, sw - 2, sh - MENUBAR_H - TITLE_H - 2 - 84);
+            w->x = 0;
+            w->y = MENUBAR_H;
+        } else {
+            win_resize(w, w->rcw, w->rch);
+            w->x = w->rx;
+            w->y = w->ry;
+        }
     }
     w->born = 0;
     gui_redraw();
@@ -1049,6 +1265,71 @@ static void draw_cursor(struct gfx_surface *s)
         }
 }
 
+/* The pointer is drawn on top of the finished picture and the pixels under it are remembered,
+ * so moving the mouse only repaints a tiny rectangle instead of the whole desktop. */
+#define CUR_W 12
+#define CUR_H 19
+static uint32_t cur_under[CUR_W * CUR_H];
+static int cur_ux, cur_uy;
+static bool cur_on;
+
+static void cursor_paint(struct gfx_surface *s)
+{
+    cur_ux = mx;
+    cur_uy = my;
+    for (int j = 0; j < CUR_H; j++)
+        for (int i = 0; i < CUR_W; i++)
+            cur_under[j * CUR_W + i] = (mx + i < s->w && my + j < s->h) ? gfx_get_pixel(s, mx + i, my + j) : 0;
+    draw_cursor(s);
+    cur_on = true;
+}
+
+static void cursor_restore(struct gfx_surface *s)
+{
+    if (!cur_on)
+        return;
+    for (int j = 0; j < CUR_H; j++)
+        for (int i = 0; i < CUR_W; i++)
+            if (cur_ux + i < s->w && cur_uy + j < s->h)
+                gfx_pixel(s, cur_ux + i, cur_uy + j, cur_under[j * CUR_W + i]);
+    cur_on = false;
+}
+
+static void cursor_move_only(void)
+{
+    struct gfx_surface *s = gfx_screen();
+    int ox = cur_ux, oy = cur_uy;
+
+    cursor_restore(s);
+    cursor_paint(s);
+    gfx_flush(ox, oy, CUR_W, CUR_H);
+    gfx_flush(mx, my, CUR_W, CUR_H);
+}
+
+/* A number that changes whenever something on screen reacts to the pointer position
+ * (dock zoom, window button symbols, open menus). Same number = only the arrow moved. */
+static uint32_t hover_sig(void)
+{
+    if (menu_open || spot_open || dlg.open || ptr_mode)
+        return (uint32_t)(mx * 7919 + my * 104729 + 1);
+    int dx, dy, dw, dh;
+    if (ndock) {
+        dock_rect(&dx, &dy, &dw, &dh);
+        if (mx >= dx - 20 && mx < dx + dw + 20 && my >= dy - 40)
+            return (uint32_t)(mx * 7919 + my * 104729 + 2);
+    }
+    for (int i = nz - 1; i >= 0; i--) {
+        struct gui_window *w = &wins[zorder[i]];
+        if (w->minimized || w->fullscreen)
+            continue;
+        if (mx >= w->x && mx < w->x + outer_w(w) && my >= w->y && my < w->y + outer_h(w)) {
+            bool grp = mx >= w->x + 8 && mx < w->x + 72 && my >= w->y + 3 && my < w->y + 27;
+            return 0x10000u + (uint32_t)zorder[i] * 2 + (grp ? 1u : 0u);
+        }
+    }
+    return 0;
+}
+
 static int fps_count, fps_last;
 int gui_fps(void) { return fps_last; }
 
@@ -1065,15 +1346,18 @@ static void render(void)
     for (int i = 0; i < nz; i++)
         if (!wins[zorder[i]].minimized)
             draw_window(s, &wins[zorder[i]], &wins[zorder[i]] == front);
-    draw_dock(s);
-    draw_menubar(s);
+    if (!(front && front->fullscreen)) {
+        draw_dock(s);
+        draw_menubar(s);
+    }
     if (menu_open)
         draw_menu(s);
     if (spot_open)
         draw_spotlight(s);
     if (dlg.open)
         draw_dialog(s);
-    draw_cursor(s);
+    cur_on = false;
+    cursor_paint(s);
     gfx_flush_all();
 }
 
@@ -1133,6 +1417,12 @@ static int hit_window(int x, int y)
 static uint32_t last_click_t;
 static int last_click_x, last_click_y;
 
+static bool fs_front(void)
+{
+    struct gui_window *f = focused();
+    return f && f->fullscreen;
+}
+
 static void mouse_click(int x, int y, int btn)
 {
     if (dlg.open) {
@@ -1165,12 +1455,20 @@ static void mouse_click(int x, int y, int btn)
         if (popup && y >= MENUBAR_H)
             return;
     }
-    if (y < MENUBAR_H) {
+    if (y < MENUBAR_H && !fs_front()) {
         struct gui_window *f = focused();
         if (x < 44) {
             if (menu_open == M_NONE)
                 open_apple_menu();
-        } else if (x > sw - 90) {
+        } else if (f && name_w && x >= name_x && x < name_x + name_w) {
+            open_name_menu(f);
+        } else if (f && win_w && x >= win_x && x < win_x + win_w) {
+            open_window_menu(f);
+        } else if (x >= net_x - 8 && x < net_x + 26) {
+            open_status_menu(0);
+        } else if (x >= bt_x - 8 && x < bt_x + 18) {
+            open_status_menu(1);
+        } else if (x >= srch_x - 10) {
             spot_toggle();
         } else if (f && f->app->menus) {
             for (int i = 0; i < f->app->nmenus && i < 8; i++)
@@ -1181,7 +1479,7 @@ static void mouse_click(int x, int y, int btn)
         }
         return;
     }
-    if (ndock && btn == GUI_BTN_LEFT) {
+    if (ndock && btn == GUI_BTN_LEFT && !fs_front()) {
         int dx, dy, dw, dh;
         dock_rect(&dx, &dy, &dw, &dh);
         if (x >= dx && x < dx + dw && y >= dy - 10 && y < dy + dh) {
@@ -1319,6 +1617,7 @@ static void handle_key(const struct input_event *ev)
             }
         }
     }
+    if (k == KEY_F(11) && focused()) { gui_fullscreen(focused()); return; }
     if (k == KEY_F(2)) { ptr_mode = !ptr_mode; return; }
     if (spot_open) {
         spot_key(k);
@@ -1427,6 +1726,7 @@ void gui_run(void)
     my = sh / 2;
     mbuttons = 0;
     drag_idx = -1;
+    gui_apply_sys_prefs();
     gui_theme_apply();
     tg_light_mode = !gui_prefs.dark;
     collect_apps();
@@ -1440,8 +1740,11 @@ void gui_run(void)
     gui_login();
     input_flush();
 
-    gui_open_named("Terminal");
-    struct gui_window *term = nz ? &wins[zorder[nz - 1]] : NULL;
+    gui_apply_sys_prefs();
+    tg_light_mode = !gui_prefs.dark;
+    if (sys_prefs.open_terminal || boot_has_arg("guitest"))
+        gui_open_named("Terminal");
+    struct gui_window *term = (nz && sys_prefs.open_terminal) ? &wins[zorder[nz - 1]] : NULL;
     if (term) {
         term->x = 40;
         term->y = MENUBAR_H + 16;
@@ -1465,13 +1768,30 @@ void gui_run(void)
         int r = input_wait(&ev, animating ? frame_ms : 100);
 
         need_redraw = false;
+        bool only_move = true, got_event = false, cursor_only = false;
+        static uint32_t last_sig;
+
         while (r == 0) {
-            if (ev.type == INPUT_MOUSE)
+            got_event = true;
+            if (ev.type == INPUT_MOUSE) {
+                uint8_t b0 = mbuttons;
                 handle_mouse(&ev);
-            else if (ev.type == INPUT_KEY)
-                handle_key(&ev);
-            redraw = true;
+                if (mbuttons != b0 || drag_idx >= 0)
+                    only_move = false;
+            } else {
+                if (ev.type == INPUT_KEY)
+                    handle_key(&ev);
+                only_move = false;
+            }
             r = input_poll(&ev) ? 0 : -1;
+        }
+        if (got_event) {
+            uint32_t sg = hover_sig();
+            if (!only_move || sg != last_sig || need_redraw || animating)
+                redraw = true;
+            else
+                cursor_only = true;
+            last_sig = sg;
         }
         for (int i = 0; i < MAX_WINDOWS; i++)
             if (wins[i].used && wins[i].app->tick)
@@ -1490,6 +1810,8 @@ void gui_run(void)
             need_redraw = false;
             fps_count++;
             render();
+        } else if (cursor_only) {
+            cursor_move_only();
         }
     }
 

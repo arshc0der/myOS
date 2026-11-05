@@ -137,3 +137,26 @@ static int cmd_imginfo(int argc, char **argv)
     return 0;
 }
 SHELL_COMMAND("imginfo", "imginfo <file>", "Check that a picture can be decoded", cmd_imginfo);
+
+static int cmd_hostname(int argc, char **argv)
+{
+    if (argc < 2) { kprintf("%s\n", sys_prefs.hostname); return 0; }
+    if (!sys_hostname_ok(argv[1])) { kprintf("hostname: use letters, digits and - (23 characters at most)\n"); return 1; }
+    strlcpy(sys_prefs.hostname, argv[1], sizeof sys_prefs.hostname);
+    sys_prefs_save();
+    return 0;
+}
+SHELL_COMMAND("hostname", "hostname [name]", "Show or set the computer name", cmd_hostname);
+
+static int cmd_factoryreset(int argc, char **argv)
+{
+    bool erase = argc > 2 && !strcmp(argv[2], "erase");
+    if (argc < 2 || strcmp(argv[1], "yes") != 0) {
+        kprintf("usage: factoryreset yes [erase]   (erase also deletes accounts and home folders)\n");
+        return 1;
+    }
+    sys_factory_reset(erase);
+    kprintf("Settings reset%s. Restart to run the Setup Assistant.\n", erase ? ", accounts erased" : "");
+    return 0;
+}
+SHELL_COMMAND("factoryreset", "factoryreset yes [erase]", "Reset settings (and accounts) and run the Setup Assistant again", cmd_factoryreset);

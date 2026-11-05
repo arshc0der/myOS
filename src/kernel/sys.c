@@ -7,6 +7,7 @@
 #include "kerror.h"
 #include "log.h"
 #include "hw.h"
+#include "fileops.h"
 
 static bool persistent;
 static struct blockdev *found[16];
@@ -123,16 +124,16 @@ static uint32_t pw_hash(const char *name, const char *pw)
 
 static void accounts_save(void)
 {
-    char buf[SYS_MAX_USERS * 48 + 8];
+    char buf[SYS_MAX_USERS * 80 + 8];
     int o = 0;
     for (int i = 0; i < nusers; i++)
-        o += ksnprintf(buf + o, sizeof buf - (size_t)o, "%s:%u:%d\n", users[i].name, users[i].hash, users[i].admin);
+        o += ksnprintf(buf + o, sizeof buf - (size_t)o, "%s:%u:%d:%s\n", users[i].name, users[i].hash, users[i].admin, users[i].full);
     vfs_write_file(ACCOUNTS, buf, (size_t)o);
 }
 
 static void accounts_load(void)
 {
-    static char buf[SYS_MAX_USERS * 48 + 8];
+    static char buf[SYS_MAX_USERS * 80 + 8];
     nusers = 0;
     ssize_t n = vfs_read_file(ACCOUNTS, buf, sizeof buf - 1);
     if (n <= 0)
@@ -153,6 +154,9 @@ static void accounts_load(void)
                 for (const char *p = c1; *p >= '0' && *p <= '9'; p++) h = h * 10 + (uint32_t)(*p - '0');
                 u->hash = h;
                 u->admin = *c2 == '1';
+                char *c3 = strchr(c2, ':');
+                if (c3)
+                    strlcpy(u->full, c3 + 1, sizeof u->full);
             }
         }
         if (!nl) break;
@@ -208,6 +212,21 @@ int users_add(const char *name, const char *password, bool admin)
     accounts_save();
     return 0;
 }
+
+void users_set_fullname(const char *name, const char *full)
+{
+    users_count();
+    for (int i = 0; i < nusers; i++)
+        if (strcmp(users[i].name, name) == 0) {
+            strlcpy(users[i].full, full, sizeof users[i].full);
+            for (char *c = users[i].full; *c; c++)
+                if (*c == ':' || *c == '\n')
+                    *c = ' ';
+            accounts_save();
+        }
+}
+
+void users_logout(void) { cur = -1; }
 
 int users_remove(const char *name)
 {
@@ -272,7 +291,36 @@ const char *users_home(void)
 /* Preferences: time zone, location, refresh rate                      */
 /* ------------------------------------------------------------------ */
 
-struct sys_prefs sys_prefs = { .tz_minutes = 330, .city = "Kolkata", .refresh_hz = 60, .clock24 = true };
+struct sys_prefs sys_prefs = { .tz_minutes = 330, .city = "Kolkata", .refresh_hz = 60, .clock24 = true, .date_format = 0,
+    .auto_time = true, .require_password = true, .auto_updates = false, .check_updates = true, .open_terminal = true,
+    .volume = 60, .hostname = "myos" };
+
+const char *const sys_languages[] = { "English", "Hindi", "Spanish", "French", "German", "Portuguese", "Japanese", "Chinese" };
+const char *const sys_greetings[] = { "Hello", "Namaste", "Hola", "Bonjour", "Hallo", "Ola", "Konnichiwa", "Ni hao" };
+int sys_language_count(void) { return 8; }
+
+const char *const sys_countries[] = { "India", "United States", "United Kingdom", "Canada", "Australia", "Germany", "France",
+                                      "Japan", "Singapore", "United Arab Emirates" };
+int sys_country_count(void) { return 10; }
+
+void sys_prefs_defaults(void)
+{
+    struct sys_prefs d = { .tz_minutes = 330, .refresh_hz = 60, .clock24 = true, .auto_time = true, .require_password = true,
+                           .check_updates = true, .open_terminal = true, .volume = 60 };
+    strlcpy(d.city, "Kolkata", sizeof d.city);
+    strlcpy(d.hostname, "myos", sizeof d.hostname);
+    sys_prefs = d;
+}
+
+bool sys_hostname_ok(const char *n)
+{
+    if (!n[0] || strlen(n) >= sizeof sys_prefs.hostname)
+        return false;
+    for (; *n; n++)
+        if (!((*n >= 'a' && *n <= 'z') || (*n >= 'A' && *n <= 'Z') || (*n >= '0' && *n <= '9') || *n == '-'))
+            return false;
+    return true;
+}
 
 static const struct { const char *city; int tz; } places[] = {
     { "Kolkata", 330 }, { "Delhi", 330 }, { "Mumbai", 330 }, { "Dubai", 240 }, { "London", 0 },
@@ -289,18 +337,44 @@ void sys_place_set(int i)
     sys_prefs_save();
 }
 
+void sys_country_apply(int i)
+{
+    static const struct { const char *city; int fmt; bool h24; } c[] = {
+        { "Kolkata", 0, true }, { "New York", 1, false }, { "London", 0, true }, { "Chicago", 1, false },
+        { "Sydney", 0, true }, { "Berlin", 0, true }, { "Paris", 0, true }, { "Tokyo", 2, true },
+        { "Singapore", 0, true }, { "Dubai", 0, true } };
+    if (i < 0 || i >= 10)
+        return;
+    sys_prefs.country = i;
+    sys_prefs.date_format = c[i].fmt;
+    sys_prefs.clock24 = c[i].h24;
+    for (int k = 0; k < sys_place_count(); k++)
+        if (!strcmp(places[k].city, c[i].city))
+            sys_place_set(k);
+}
+
+#define FLAGS(X) \
+    X(setup, setup_done) X(lang, language) X(country, country) X(datefmt, date_format) X(autotime, auto_time) \
+    X(acc_contrast, acc_contrast) X(acc_motion, acc_reduce_motion) X(acc_kbd, acc_kbd_pointer) X(acc_reader, acc_reader) \
+    X(acc_magnify, acc_magnify) X(priv_diag, priv_diag) X(priv_loc, priv_location) X(priv_ana, priv_analytics) \
+    X(reqpw, require_password) X(autoupd, auto_updates) X(chkupd, check_updates) X(voice, voice) X(openterm, open_terminal) \
+    X(volume, volume) X(muted, muted) X(dark, dark) X(accent, accent) X(kbdlayout, kbd_layout)
+
 void sys_prefs_save(void)
 {
-    char b[128];
-    int n = ksnprintf(b, sizeof b, "tz=%d\ncity=%s\nhz=%d\nclock24=%d\n", sys_prefs.tz_minutes, sys_prefs.city,
-                      sys_prefs.refresh_hz, sys_prefs.clock24);
+    char b[800];
+    int n = ksnprintf(b, sizeof b, "tz=%d\ncity=%s\nhz=%d\nclock24=%d\nhost=%s\n", sys_prefs.tz_minutes, sys_prefs.city,
+                      sys_prefs.refresh_hz, sys_prefs.clock24, sys_prefs.hostname);
+#define X(key, field) n += ksnprintf(b + n, sizeof b - (size_t)n, #key "=%d\n", (int)sys_prefs.field);
+    FLAGS(X)
+#undef X
     if (persistent)
         vfs_write_file("/Users/.sysconf", b, (size_t)n);
 }
 
 void sys_prefs_load(void)
 {
-    char b[160];
+    char b[900];
     ssize_t n = vfs_read_file("/Users/.sysconf", b, sizeof b - 1);
     if (n <= 0)
         return;
@@ -308,13 +382,42 @@ void sys_prefs_load(void)
     for (char *l = b; *l;) {
         char *nl = strchr(l, '\n');
         if (nl) *nl = 0;
-        if (!strncmp(l, "tz=", 3)) sys_prefs.tz_minutes = katoi(l + 3);
-        else if (!strncmp(l, "city=", 5)) strlcpy(sys_prefs.city, l + 5, sizeof sys_prefs.city);
-        else if (!strncmp(l, "hz=", 3)) sys_prefs.refresh_hz = katoi(l + 3);
-        else if (!strncmp(l, "clock24=", 8)) sys_prefs.clock24 = katoi(l + 8) != 0;
+        char *eq = strchr(l, '=');
+        if (eq) {
+            *eq = 0;
+            const char *k = l, *v = eq + 1;
+            if (!strcmp(k, "tz")) sys_prefs.tz_minutes = katoi(v);
+            else if (!strcmp(k, "city")) strlcpy(sys_prefs.city, v, sizeof sys_prefs.city);
+            else if (!strcmp(k, "hz")) sys_prefs.refresh_hz = katoi(v);
+            else if (!strcmp(k, "clock24")) sys_prefs.clock24 = katoi(v) != 0;
+            else if (!strcmp(k, "host")) strlcpy(sys_prefs.hostname, v, sizeof sys_prefs.hostname);
+#define X(key, field) else if (!strcmp(k, #key)) sys_prefs.field = (typeof(sys_prefs.field))katoi(v);
+            FLAGS(X)
+#undef X
+        }
         if (!nl) break;
         l = nl + 1;
     }
+}
+
+void sys_factory_reset(bool erase_data)
+{
+    struct dirent e;
+
+    if (erase_data) {
+        vfs_unlink(ACCOUNTS);
+        for (int guard = 0; guard < 64 && vfs_readdir("/Users", 0, &e) == 0; guard++) {
+            char p[VFS_PATH_MAX];
+            ksnprintf(p, sizeof p, "/Users/%s", e.name);
+            if (fo_remove(p) < 0)
+                break;
+        }
+        nusers = 0;
+        cur = -1;
+    }
+    sys_prefs_defaults();                       /* setup_done = false */
+    sys_prefs_save();
+    vfs_unlink("/Users/.sysconf");
 }
 
 void sys_local_time(uint32_t t[6])
@@ -328,4 +431,16 @@ void sys_local_time(uint32_t t[6])
         total += 1440;
     t[3] = (uint32_t)(total / 60);              /* date is not adjusted across midnight */
     t[4] = (uint32_t)(total % 60);
+}
+
+void sys_date_string(char *out, size_t n)
+{
+    uint32_t r[6];
+    rtc_read(r);
+    if (sys_prefs.date_format == 1)
+        ksnprintf(out, n, "%02u/%02u/%04u", r[1], r[2], r[0]);
+    else if (sys_prefs.date_format == 2)
+        ksnprintf(out, n, "%04u-%02u-%02u", r[0], r[1], r[2]);
+    else
+        ksnprintf(out, n, "%02u/%02u/%04u", r[2], r[1], r[0]);
 }

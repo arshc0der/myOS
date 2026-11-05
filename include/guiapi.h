@@ -120,6 +120,7 @@ struct gui_window {
     bool want_close;
     bool minimized;
     bool maximized;
+    bool fullscreen;                /* covers the whole screen, no menu bar or dock (F11) */
     int rx, ry, rcw, rch;           /* geometry to restore after maximize */
     void *priv;                     /* the app's own data              */
 };
@@ -136,7 +137,9 @@ struct gui_window *gui_open_named(const char *name);
 void  gui_close(struct gui_window *w);          /* safe to call from callbacks */
 void  gui_redraw(void);                         /* ask for a new frame         */
 void  gui_set_title(struct gui_window *w, const char *title);
-void  gui_maximize(struct gui_window *w);        /* toggle maximize / restore  */
+void  gui_maximize(struct gui_window *w);
+void  gui_fullscreen(struct gui_window *w);      /* toggle full screen */
+void  settings_show(const char *page);           /* open Settings on a page ("Network", "Bluetooth" ...) */        /* toggle maximize / restore  */
 void  gui_resize(struct gui_window *w, int cw, int ch);
 void  gui_set_dark(bool dark);
 void  gui_quit(void);                           /* leave the desktop           */
@@ -163,7 +166,7 @@ bool  gui_set_resolution(int w, int h);
 
 /* ---- small drawing helpers (src/gui/widgets.c) ---- */
 void gui_button(struct gfx_surface *s, int x, int y, int w, int h, const char *label, bool on);
-void gui_segment(struct gfx_surface *s, int x, int y, int w, const char **labels, int n, int active);
+void gui_segment(struct gfx_surface *s, int x, int y, int w, const char *const *labels, int n, int active);
 void gui_sidebar_row(struct gfx_surface *s, int x, int y, int w, const char *label, bool sel);
 void gui_label_center(struct gfx_surface *s, int x, int y, int w, const char *text, uint32_t col);
 /* Icons: kind is VFS_DIR / VFS_FILE (see vfs.h); name picks a symbol from the extension. */
@@ -173,6 +176,42 @@ void gui_textfield(struct gfx_surface *s, int x, int y, int w, const char *text,
 void gui_toolbar_button(struct gfx_surface *s, int x, int y, int w, int h, const char *label, bool enabled);
 bool gui_hit(int px, int py, int x, int y, int w, int h);       /* point in rectangle */
 
+
+/* ---- more widgets (src/gui/widgets2.c) ---- */
+/* Layout: split a rectangle into rows (vertical) or columns (horizontal).
+ *     struct gui_layout l;
+ *     gui_layout_init(&l, 10, 10, w->cw - 20, w->ch - 20, true, 8);   // stack downwards, 8 px apart
+ *     int x, y, cw, ch;
+ *     gui_layout_next(&l, 30, &x, &y, &cw, &ch);                       // a 30 px high row
+ *     gui_layout_next(&l, 0, &x, &y, &cw, &ch);                        // 0 = all the space that is left */
+struct gui_layout { int x, y, w, h, gap, pos; bool vertical; };
+void gui_layout_init(struct gui_layout *l, int x, int y, int w, int h, bool vertical, int gap);
+void gui_layout_next(struct gui_layout *l, int size, int *x, int *y, int *w, int *h);
+
+/* Drawing. The matching *_hit / *_value functions turn a click position into an answer. */
+void gui_hscrollbar(struct gfx_surface *s, int x, int y, int w, int total, int visible, int left);
+void gui_checkbox(struct gfx_surface *s, int x, int y, const char *label, bool checked);
+bool gui_checkbox_hit(int px, int py, int x, int y, const char *label);
+void gui_switch(struct gfx_surface *s, int x, int y, bool on);              /* 40 x 22 */
+bool gui_switch_hit(int px, int py, int x, int y);
+void gui_slider(struct gfx_surface *s, int x, int y, int w, int value, int max);
+int  gui_slider_value(int px, int x, int w, int max);                       /* click x -> 0..max */
+void gui_progress(struct gfx_surface *s, int x, int y, int w, int h, int value, int max);
+int  gui_tab_hit(int px, int py, int x, int y, int w, int n);               /* tab index or -1 (same shape as gui_segment) */
+
+/* Pictures. Load once (in open()), draw every frame, free in close() with gfx_surface_free(). */
+struct gfx_surface *gui_image_load(const char *path);                       /* BMP / PNG / JPEG, NULL on error */
+void gui_image(struct gfx_surface *s, int x, int y, int w, int h, const struct gfx_surface *img);   /* fit + centre */
+
+/* Scroll view: a big picture of your content (`content`) seen through a window of w x h pixels,
+ * with scroll bars on both axes. Draw your content into `content`, then call gui_scroll_draw. */
+struct gui_scroll { int x, y, w, h, ox, oy; };
+void gui_scroll_draw(struct gfx_surface *s, const struct gui_scroll *sv, const struct gfx_surface *content);
+void gui_scroll_by(struct gui_scroll *sv, const struct gfx_surface *content, int dx, int dy);
+bool gui_scroll_click(struct gui_scroll *sv, const struct gfx_surface *content, int px, int py);   /* true if on a bar */
+
+void  gui_setup_assistant(void);                /* first-boot Setup Assistant (setup.c) */
+void  gui_apply_sys_prefs(void);                /* apply saved appearance / accessibility prefs */
 void  gui_login(void);                          /* first-boot setup / login screen (login.c) */
 
 /* ---- applications that other apps call ---- */

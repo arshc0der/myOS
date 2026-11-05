@@ -79,7 +79,7 @@ void gui_button(struct gfx_surface *s, int x, int y, int w, int h, const char *l
 }
 
 /* macOS style segmented control: n equal segments, one active. */
-void gui_segment(struct gfx_surface *s, int x, int y, int w, const char **labels, int n, int active)
+void gui_segment(struct gfx_surface *s, int x, int y, int w, const char *const *labels, int n, int active)
 {
     int seg = w / n;
 
