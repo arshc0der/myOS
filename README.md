@@ -1,57 +1,147 @@
-
-# MyOS 2.7.0 "Horizon"
+# MyOS 2.7.0 — Horizon
 
 **A hobby operating system built from scratch in C and x86 assembly.**
 
-MyOS is a 32-bit x86 operating system designed to explore kernel development, memory management, multitasking, filesystems, device drivers, graphics, and graphical user interfaces.
+MyOS is a 32-bit x86 hobby operating system developed to explore kernel engineering, memory management, multitasking, filesystems, device drivers, networking, graphics, and graphical user interfaces.
 
-The project boots through GRUB using the Multiboot protocol and is organized into separate kernel subsystems, making it easier to understand, extend, and experiment with operating-system internals.
+Built from the ground up, MyOS boots through GRUB using the Multiboot protocol and is organized into modular kernel subsystems. The project combines low-level operating system development with an evolving graphical desktop environment.
 
-![Latest Release](https://img.shields.io/github/v/release/arshc0der/myOS?label=Latest%20Release&style=for-the-badge) ![License: MIT](https://img.shields.io/github/license/arshc0der/myOS?style=for-the-badge) ![GitHub Stars](https://img.shields.io/github/stars/arshc0der/myOS?style=for-the-badge&logo=github) ![GitHub Forks](https://img.shields.io/github/forks/arshc0der/myOS?style=for-the-badge&logo=github) ![GitHub Issues](https://img.shields.io/github/issues/arshc0der/myOS?style=for-the-badge&logo=github) ![Open Pull Requests](https://img.shields.io/github/issues-pr/arshc0der/myOS?style=for-the-badge&logo=github) ![Last Commit](https://img.shields.io/github/last-commit/arshc0der/myOS?style=for-the-badge&logo=git) ![Commit Activity](https://img.shields.io/github/commit-activity/m/arshc0der/myOS?style=for-the-badge) ![Repository Size](https://img.shields.io/github/repo-size/arshc0der/myOS?style=for-the-badge) ![Top Language](https://img.shields.io/github/languages/top/arshc0der/myOS?style=for-the-badge&logo=c) ![Languages](https://img.shields.io/github/languages/count/arshc0der/myOS?style=for-the-badge) ![GitHub Contributors](https://img.shields.io/github/contributors/arshc0der/myOS?style=for-the-badge)
+The Horizon series focuses on expanding the desktop experience, improving hardware support, and introducing new system capabilities.
 
-**Repository:** arshc0der/myOS · **License:** MIT
+![Latest Release](https://img.shields.io/github/v/release/arshc0der/myOS?label=Latest%20Release&style=for-the-badge) ![License: MIT](https://img.shields.io/github/license/arshc0der/myOS?style=for-the-badge) ![GitHub Stars](https://img.shields.io/github/stars/arshc0der/myOS?style=for-the-badge&logo=github) ![GitHub Forks](https://img.shields.io/github/forks/arshc0der/myOS?style=for-the-badge&logo=github) ![GitHub Issues](https://img.shields.io/github/issues/arshc0der/myOS?style=for-the-badge&logo=github) ![Open Pull Requests](https://img.shields.io/github/issues-pr/arshc0der/myOS?style=for-the-badge&logo=github) ![Last Commit](https://img.shields.io/github/last-commit/arshc0der/myOS?style=for-the-badge&logo=git) ![Top Language](https://img.shields.io/github/languages/top/arshc0der/myOS?style=for-the-badge&logo=c)
+
+**Repository:** [arshc0der/myOS](https://github.com/arshc0der/myOS) · **License:** MIT
+
+> **Current release: MyOS 2.7.0**
+>
+> This release has been compiled but has not been run or runtime-tested. Run `make clean && make` before building.
 
 ---
 
 ## Table of Contents
 
-- Overview
-- Features
-- Screenshots and Demo
-- Getting Started
-- Building MyOS
-- Running MyOS
-- Using the Shell
-- Filesystems
-- Memory Management and Processes
-- Graphics and Desktop
-- Project Structure
-- Write Your Own Code
-- Documentation
-- Testing
-- Troubleshooting
-- Roadmap
-- Contributing
-- License
+- [Overview](#overview)
+- [What's New in 2.7.0](#whats-new-in-270)
+- [Features](#features)
+- [Screenshots and Demo](#screenshots-and-demo)
+- [Getting Started](#getting-started)
+- [Building MyOS](#building-myos)
+- [Running MyOS](#running-myos)
+- [Using the Shell](#using-the-shell)
+- [Filesystems and Storage](#filesystems-and-storage)
+- [Memory Management and Processes](#memory-management-and-processes)
+- [Graphics and Desktop](#graphics-and-desktop)
+- [Project Structure](#project-structure)
+- [Development and Customization](#development-and-customization)
+- [Documentation](#documentation)
+- [Testing](#testing)
+- [Known Limitations](#known-limitations)
+- [Troubleshooting](#troubleshooting)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
 
 ## Overview
 
-MyOS started as a small kernel with a text console and an interactive shell. Version 2.0.0, named **Foundation**, organizes the code into dedicated components for architecture, device drivers, memory management, filesystems, process scheduling, graphics, and user extensions.
+MyOS started as a small kernel with a text console and an interactive shell. It has gradually evolved into a modular operating system project featuring memory management, process scheduling, filesystem support, hardware drivers, networking, and a graphical desktop.
 
-The goal is to build an operating system that is both a practical programming project and an educational platform.
+The project is designed for both experimentation and learning. Its modular architecture makes it possible to explore individual operating system components without treating the kernel as one large, monolithic program.
 
-You can study how a kernel boots, inspect hardware information, experiment with memory allocation, explore virtual filesystems, implement scheduler policies, and write your own filesystem.
+With MyOS, you can explore:
+
+- How an x86 kernel boots using GRUB and Multiboot.
+- How physical and virtual memory are managed.
+- How processes and scheduling work.
+- How filesystems interact with storage devices.
+- How hardware is accessed through device drivers.
+- How framebuffer graphics and window management are implemented.
+- How networking and system services are developed.
+
+MyOS is an ongoing hobby operating system project. Features are introduced progressively, and their stability and hardware compatibility may vary between releases.
+
+## What's New in 2.7.0
+
+MyOS 2.7.0 expands accessibility, system interaction, networking, and device support.
+
+### Accessibility
+
+- **Screen Magnifier:** A 3x magnification lens displayed beside the pointer.
+- **Visual Screen Reader:** A caption bar identifies the window, menu, or dock item under the pointer and displays the active window.
+- **Audio Feedback:** Short PC-speaker tones play when the identified interface element changes.
+
+### Assistant App
+
+A new Assistant application is available from the Dock. It accepts typed requests for common system actions and information, including:
+
+- Opening applications.
+- Checking the date and time.
+- Switching between dark and light appearance.
+- Adjusting volume and mute settings.
+- Controlling magnification and the screen reader.
+- Checking network and update status.
+- Restarting and shutting down the system.
+
+The Voice Assistant setting adds a tone to responses.
+
+### Update Detection
+
+- Checks connected disks for the `MyOSUpdate/VERSION` marker.
+- Supports manual checks through Settings > General > Check now.
+- Can check for updates when Settings starts if the corresponding setting is enabled.
+- Notifies the user when a newer kernel is detected.
+
+Copying the updated `kernel.elf` to boot media remains a manual operation.
+
+### Translations
+
+Initial translations are available for setup screens, the login screen, and Settings page names:
+
+- Hindi (Latin letters)
+- Spanish
+- French
+- German
+- Portuguese
+
+### Networking
+
+The network stack now includes basic TCP client and HTTP functionality.
+
+New interfaces include:
+
+- `net_tcp_connect`
+- `net_tcp_send`
+- `net_tcp_recv`
+- `net_tcp_close`
+- `net_http_get`
+
+The shell also includes the `wget` command for HTTP downloads.
+
+### USB Bluetooth
+
+Initial USB Bluetooth support has been introduced through `src/drivers/usb/btusb.c`.
+
+- Resets and registers a supported USB Bluetooth dongle.
+- Performs device inquiry through the Scan action.
+- Lists nearby Bluetooth devices and their names when transmitted.
+
+**Important:** MyOS 2.7.0 has only been compiled. These new features have not been runtime-tested.
+
+For the complete release details, see the [MyOS 2.7.0 release notes](https://github.com/arshc0der/myOS/releases).
 
 ## Features
 
-The following list describes the subsystems present in the project source tree. The completeness and stability of individual features may vary.
+The following sections describe the major subsystems present in the MyOS project source tree. Individual capabilities may have different levels of implementation and stability.
 
-### Kernel and hardware
+### 1. Kernel and Hardware
 
-- GRUB boot support using the Multiboot protocol.
 - 32-bit x86 kernel written in C and assembly.
-- Global Descriptor Table (GDT) and Interrupt Descriptor Table (IDT).
-- Interrupt service routines and programmable interrupt controller (PIC) support.
+- GRUB boot support using the Multiboot protocol.
+- Global Descriptor Table (GDT).
+- Interrupt Descriptor Table (IDT).
+- Interrupt service routines.
+- Programmable Interrupt Controller (PIC).
 - Programmable Interval Timer (PIT).
 - CPU information through CPUID.
 - PCI device enumeration.
@@ -60,92 +150,117 @@ The following list describes the subsystems present in the project source tree. 
 - Serial and VGA console drivers.
 - Kernel logging, formatted output, and panic handling.
 
-### Memory management
+### 2. Memory Management
 
 - Physical memory management with a bitmap allocator.
 - Virtual memory management and paging.
 - Kernel heap allocator.
 - Memory-related diagnostic interfaces.
 
-### Processes and synchronization
+### 3. Processes and Synchronization
 
 - Scheduler subsystem with configurable policies.
 - Context-switching support.
-- Mutexes, semaphores, and synchronization primitives.
+- Mutexes and semaphores.
+- Synchronization primitives.
 - Student scheduler implementation.
 
-### Filesystems and storage
+### 4. Filesystems and Storage
 
 - Virtual filesystem (VFS).
 - RAM-based filesystem (ramfs).
 - Device filesystem (devfs).
-- Project filesystem (MyFS).
+- MyOS filesystem (MyFS).
 - Block-device abstraction.
 - RAM disks.
 - ATA PIO disk driver.
 - MBR partition support.
 - Filesystem mounting and file operations through the shell.
 
-### Graphics and desktop
+### 5. Graphics and Desktop
 
 - Framebuffer graphics support.
 - Framebuffer-based text console.
 - Graphics primitives and terminal grid.
 - Graphical user interface subsystem.
-- Desktop applications and window management, where implemented and enabled in the current build.
+- Window management.
+- Desktop applications.
+- Settings and system configuration.
+- Screen magnification and visual accessibility features.
 
-### Developer tools
+### 6. Networking and Connectivity
+
+- Network stack development.
+- Basic TCP client interfaces.
+- HTTP GET support.
+- Shell-based HTTP downloads through `wget`.
+- Initial USB Bluetooth device detection and inquiry.
+
+### 7. Developer Tools
 
 - Modular shell commands.
 - Built-in kernel self-tests.
 - Host-side test infrastructure.
-- Student templates for custom initialization, filesystems, and scheduling.
+- Student templates for custom initialization.
+- Filesystem and scheduler development templates.
 - Architecture and subsystem documentation.
 
-##  MyOS – Graphical Operating System
+## Screenshots and Demo
+
+Explore the MyOS graphical desktop and its applications.
 
 <p align="center">
-  <img src="docs/images/myos-showcase.gif"
-       alt="MyOS Screenshot Showcase"
-       width="100%">
+  <img src="docs/images/myos-showcase.gif" alt="MyOS Graphical Desktop Showcase" width="100%">
 </p>
 
 <p align="center">
-  <b>Explore the MyOS desktop experience.</b>
-  <br>
-  Desktop • Terminal • File Manager • Notepad • Task Manager • Settings
+  <strong>Explore the MyOS desktop experience.</strong><br>
+  Desktop · Terminal · File Manager · Notepad · Task Manager · Settings
 </p>
 
-<!--
+Additional screenshots:
 
-## 1. Desktop Environment
+<details>
+<summary>View individual desktop screenshots</summary>
+
+### Desktop Environment
+
 ![MyOS Graphical Desktop](docs/images/desktop.png)
 
-## 2. System Information
+### System Information
+
 ![MyOS System Information](docs/images/activity.png)
 
-## 3. Terminal
-![MyOS Terminal and Command Output](docs/images/terminal.png)
+### Terminal
 
-## 4. File Manager
-![MyOS Filesystem Browser](docs/images/files.png)
+![MyOS Terminal](docs/images/terminal.png)
 
-## 5. Notepad
+### File Manager
+
+![MyOS File Manager](docs/images/files.png)
+
+### Notepad
+
 ![MyOS Notepad](docs/images/notepad.png)
 
-## 6. Task Manager
+### Task Manager
+
 ![MyOS Task Manager](docs/images/task-manager.png)
 
-## 7. System Settings
+### System Settings
+
 ![MyOS Settings](docs/images/settings.png)
+
+</details>
+
 ## Getting Started
--->
+
 ### Requirements
 
 A Linux development environment is recommended.
 
 | Tool | Purpose |
-| --- | --- |
+|---|---|
 | GCC with 32-bit support | Compile kernel code |
 | GNU Make | Build automation |
 | GNU binutils | Assemble and link the kernel |
@@ -154,25 +269,22 @@ A Linux development environment is recommended.
 | QEMU | Run and debug MyOS |
 | Bochs | Alternative emulator and debugging environment |
 
-The exact toolchain requirements depend on the compiler flags and targets configured in the `Makefile`.
+The exact toolchain requirements depend on the compiler flags and build targets configured in the Makefile.
 
 ### Fedora
 
 Install the commonly required development tools:
 
-bash
-
-```
+```bash
 sudo dnf install gcc glibc-devel.i686 make binutils \
   qemu-system-x86 grub2-tools grub2-tools-extra xorriso
 ```
 
 ### Debian / Ubuntu
 
-bash
-
-```
+```bash
 sudo apt update
+
 sudo apt install build-essential gcc-multilib binutils make \
   grub-pc-bin xorriso mtools qemu-system-x86
 ```
@@ -181,120 +293,107 @@ If your distribution uses different GRUB package names, install the equivalent p
 
 ## Building MyOS
 
-Clone the repository and enter the project directory:
+### 1. Clone the Repository
 
-bash
-
-```
+```bash
 git clone https://github.com/arshc0der/myOS.git
 cd myOS
 ```
 
-Inspect the available build targets:
+### 2. Inspect Available Build Targets
 
-bash
-
-```
+```bash
 make help
 ```
 
-If the Makefile does not define a `help` target, inspect the available targets directly:
+If a `help` target is not available, inspect the Makefile directly:
 
-bash
-
-```
+```bash
 grep -nE '^[[:alnum:]_.-]+:' Makefile
 ```
 
-### Compile the kernel
+### 3. Compile the Kernel
 
-bash
-
-```
+```bash
 make clean
 make
 ```
 
-The expected kernel output is `kernel.elf`, based on the project's existing build instructions.
+The expected kernel output is `kernel.elf`, based on the project's build instructions.
 
-### Build the bootable ISO
+### 4. Build the Bootable ISO
 
-bash
-
-```
+```bash
 make iso
 ```
 
-The ISO output is expected to be `myos.iso`.
+The expected ISO output is `myos.iso`.
 
-### Run in QEMU
+### 5. Run MyOS
 
-bash
-
-```
+```bash
 make run
 ```
 
-If you prefer to launch QEMU manually after building the ISO:
-
-bash
-
-```
-qemu-system-i386 -cdrom myos.iso -m 128M
-```
-
-The commands above follow the project's earlier build workflow. If the current Makefile uses different target names or output paths, follow the definitions in that file.
+Build target names and output paths should be checked against the current Makefile if they differ from these instructions.
 
 ## Running MyOS
 
 ### QEMU
 
-QEMU provides a convenient way to test the operating system without modifying your host system.
+QEMU provides a convenient way to experiment with MyOS without modifying your host operating system.
 
 A basic launch command is:
 
-bash
-
-```
+```bash
 qemu-system-i386 -cdrom myos.iso -m 128M
 ```
 
-You can experiment with different RAM sizes and virtual hardware configurations as kernel support improves.
+You can experiment with different memory sizes and virtual hardware configurations as kernel support improves.
 
 ### VirtualBox and VMware
 
-Create a virtual machine configured for a 32-bit x86 guest, attach the bootable ISO, and boot from the virtual optical drive.
+1. Create a virtual machine configured for a 32-bit x86 guest.
+2. Attach the MyOS bootable ISO.
+3. Configure the virtual hardware.
+4. Boot from the virtual optical drive.
 
 Compatibility depends on the firmware mode and devices exposed to the guest.
 
 ### Bochs
 
-Bochs can be useful for low-level debugging and examining processor state. The repository includes a Bochs configuration and a test script under `tools/bochs/`.
+Bochs is useful for low-level debugging and examining processor state.
 
-Review those files for the expected image paths and launch procedure.
+The repository includes configuration and test tools under:
 
-### Real hardware
+```text
+tools/bochs/
+```
 
-Booting on physical hardware is more dependent on firmware, display initialization, and device compatibility than running in an emulator. Test in a virtual machine first and back up important data before attempting physical boot experiments.
+Review the included configuration files for the expected image paths and launch procedure.
+
+### Real Hardware
+
+Physical hardware compatibility depends on firmware, display initialization, storage controllers, and supported devices.
+
+Test MyOS in a virtual machine first. Back up important data before attempting physical boot experiments.
 
 ## Using the Shell
 
-After booting into the text-shell option, type:
+After booting into the text-shell environment, use:
 
-text
-
-```
+```text
 help
 ```
 
-This should display the commands registered in the running build.
+This displays the commands registered in the running build.
 
-### Core commands
+### Core Commands
 
-The following commands appeared in the earlier MyOS shell documentation. Confirm their availability and exact syntax with `help` in the current version.
+The following commands are documented in the project:
 
 | Command | Description |
-| --- | --- |
+|---|---|
 | `help` | List shell commands |
 | `about` | Display project information |
 | `version` | Display the kernel version |
@@ -302,7 +401,7 @@ The following commands appeared in the earlier MyOS shell documentation. Confirm
 | `meminfo` | Inspect memory information |
 | `cpuinfo` | Display CPU details |
 | `lspci` | List PCI devices |
-| `date` | Display the RTC date and time |
+| `date` | Display RTC date and time |
 | `history` | Show command history |
 | `echo <text>` | Print text |
 | `clear` | Clear the console |
@@ -310,20 +409,18 @@ The following commands appeared in the earlier MyOS shell documentation. Confirm
 | `halt` | Halt the CPU |
 | `shutdown` | Request system shutdown |
 
-Additional filesystem, graphics, and process commands are implemented in separate shell source files:
+Additional filesystem, graphics, and process commands are implemented in separate shell modules:
 
 - `src/shell/cmd_fs.c`
 - `src/shell/cmd_gfx.c`
 - `src/shell/cmd_proc.c`
 - `src/shell/cmd_sys.c`
 
-Use the running shell's `help` output as the authoritative command reference.
+Use the running shell's `help` output as the authoritative reference for command availability and syntax.
 
-### Example session
+### Example Session
 
-text
-
-```
+```text
 MyOS> help
 MyOS> version
 MyOS> sysinfo
@@ -334,34 +431,16 @@ MyOS> lspci
 
 Actual output depends on the emulator, available memory, virtual hardware, and current kernel build.
 
-## Filesystems
+## Filesystems and Storage
 
 MyOS separates filesystem operations from storage devices through a virtual filesystem and block-device layer.
 
 The source tree includes RAM-backed storage, device files, an on-disk filesystem implementation, and a student filesystem template.
 
-### Example workflow
-
-The following illustrates the intended filesystem workflow using commands from the earlier project documentation. Check `help` for the exact syntax and supported device names in your current build.
-
-text
-
-```
-MyOS> lsblk
-MyOS> ramdisk create r1 2048
-MyOS> mkfs myfs ram0
-MyOS> mount ram0 /mnt myfs
-MyOS> echo hello > /mnt/a.txt
-MyOS> cat /mnt/a.txt
-MyOS> df
-```
-
-**Important:** Treat this as an illustrative workflow, not a guaranteed copy-and-paste sequence. Device names, mount syntax, formatting support, and redirection behavior must match the implementation currently compiled into the kernel.
-
-### Filesystem components
+### Filesystem Components
 
 | Component | Source file | Purpose |
-| --- | --- | --- |
+|---|---|---|
 | Virtual filesystem | `src/fs/vfs.c` | Filesystem interface and namespace |
 | RAM filesystem | `src/fs/ramfs.c` | RAM-backed files |
 | Device filesystem | `src/fs/devfs.c` | Device namespace |
@@ -371,60 +450,72 @@ MyOS> df
 | Partition support | `src/fs/partition.c` | Partition handling |
 | ATA driver | `src/drivers/ata.c` | ATA PIO storage access |
 
-For implementation details, read Writing a Filesystem.
+### Example Filesystem Workflow
+
+The following is an illustrative workflow based on the project's earlier shell documentation:
+
+```text
+MyOS> lsblk
+MyOS> ramdisk create r1 2048
+MyOS> mkfs myfs ram0
+MyOS> mount ram0 /mnt myfs
+MyOS> echo hello > /mnt/a.txt
+MyOS> cat /mnt/a.txt
+MyOS> df
+```
+
+Device names, mount syntax, formatting support, and shell redirection behavior depend on the implementation in the current build. Check `help` before using these commands.
+
+For filesystem implementation details, see `docs/WRITING_A_FILESYSTEM.md`.
 
 ## Memory Management and Processes
 
-### Memory management
+### Memory Management
 
-Memory management code lives in `src/mm/`:
+Memory management code is located in `src/mm/`.
 
-- `pmm.c` — physical memory management.
-- `vmm.c` — virtual memory management.
-- `heap.c` — kernel heap allocation.
+| File | Responsibility |
+|---|---|
+| `pmm.c` | Physical memory management |
+| `vmm.c` | Virtual memory management |
+| `heap.c` | Kernel heap allocation |
 
 Related interfaces are declared in `include/`.
 
-The architecture and implementation details should be documented alongside changes to allocation, paging, and memory-map handling.
+### Scheduling and Synchronization
 
-### Scheduling and synchronization
+The process subsystem is located in `src/proc/`.
 
-The process subsystem lives in `src/proc/`:
+| File | Responsibility |
+|---|---|
+| `sched.c` | Scheduling implementation |
+| `sync.c` | Synchronization primitives |
+| `src/arch/i386/switch.S` | Architecture-specific context switching |
+| `src/user/my_scheduler.c` | Student scheduler implementation |
 
-- `sched.c` — scheduling implementation.
-- `sync.c` — synchronization primitives.
-
-Architecture-specific context switching is located in `src/arch/i386/switch.S`.
-
-The student scheduler file is:
-
-text
-
-```
-src/user/my_scheduler.c
-```
-
-Read Processes and Scheduling before changing scheduler behavior.
+For more information, see `docs/PROCESSES_AND_SCHEDULING.md`.
 
 ## Graphics and Desktop
 
-The graphics subsystem is organized into separate modules:
+The graphics subsystem is organized into dedicated modules.
 
-- `src/gfx/framebuffer.c` — framebuffer handling.
-- `src/gfx/fbcon.c` — framebuffer console.
-- `src/gfx/font.c` — font rendering support.
-- `src/gfx/gfx.c` — graphics operations.
-- `src/gfx/tgrid.c` — terminal grid.
-- `src/gui/gui.c` — graphical user interface.
+| File | Responsibility |
+|---|---|
+| `src/gfx/framebuffer.c` | Framebuffer handling |
+| `src/gfx/fbcon.c` | Framebuffer console |
+| `src/gfx/font.c` | Font rendering |
+| `src/gfx/gfx.c` | Graphics operations |
+| `src/gfx/tgrid.c` | Terminal grid |
+| `src/gui/gui.c` | Graphical user interface |
 
-Related interfaces live in `include/`.
+Related interfaces are located in `include/`.
 
-### Desktop keyboard shortcuts
+### Desktop Keyboard Shortcuts
 
-The earlier desktop documentation describes these shortcuts. Verify them against the currently enabled GUI build.
+The following shortcuts are described in the earlier desktop documentation. Their availability may depend on the current GUI build.
 
 | Shortcut | Action |
-| --- | --- |
+|---|---|
 | `Alt+T` | Open Terminal |
 | `Alt+F` | Open Files |
 | `Alt+I` | Open System Info |
@@ -432,18 +523,16 @@ The earlier desktop documentation describes these shortcuts. Verify them against
 | `Alt+A` | Open About |
 | `Alt+Tab` | Switch windows |
 | `Alt+W` | Close a window |
-| `Alt+M` | Open the start menu |
+| `Alt+M` | Open the Start menu |
 | `Alt+Q` | Return to the text shell |
 
-Additional application-specific behavior may depend on the current implementation. For example, the earlier documentation describes `Ctrl+S` for saving in Notepad and `Enter`, `Backspace`, and `D` for file operations.
+Application-specific shortcuts may also be available.
 
 ## Project Structure
 
-The repository uses a modular layout to separate public interfaces, implementation files, boot configuration, documentation, and tests.
+MyOS uses a modular source layout to separate public interfaces, kernel implementations, architecture-specific code, documentation, and tests.
 
-text
-
-```
+```text
 myOS/
 ├── docs/
 │   ├── ARCHITECTURE.md
@@ -457,13 +546,13 @@ myOS/
 ├── src/
 │   ├── arch/i386/           # GDT, IDT, PIC, context switching
 │   ├── boot/                # Assembly boot entry
-│   ├── drivers/             # CPU, keyboard, mouse, ATA, PCI, RTC
-│   ├── fs/                  # VFS, MyFS, ramfs, devfs, disks
-│   ├── gfx/                 # Framebuffer, font, graphics, terminal
+│   ├── drivers/             # Hardware drivers
+│   ├── fs/                  # VFS, MyFS, ramfs, devfs, storage
+│   ├── gfx/                 # Framebuffer, font, graphics
 │   ├── gui/                 # Graphical interface
 │   ├── kernel/              # Kernel entry, console, panic, logging
 │   ├── lib/                 # Kernel utility functions
-│   ├── mm/                  # Physical, virtual, heap memory
+│   ├── mm/                  # Physical and virtual memory
 │   ├── proc/                # Scheduling and synchronization
 │   ├── shell/               # Shell and command modules
 │   ├── test/                # Kernel self-tests
@@ -479,53 +568,53 @@ myOS/
 └── README.md
 ```
 
-## Write Your Own Code
+## Development and Customization
 
-MyOS includes starter files for experimenting with the kernel without mixing every change into the core subsystems.
+MyOS includes starter files for experimenting with the kernel and implementing custom functionality.
 
-### Student extension points
+### Student Extension Points
 
 | File | Purpose |
-| --- | --- |
+|---|---|
 | `src/user/user_init.c` | Custom initialization and user-defined shell commands |
 | `src/user/studentfs.c` | Student filesystem implementation |
 | `src/user/my_scheduler.c` | Student scheduler policy |
-| `templates/user_init.c` | Starter template for initialization |
-| `templates/studentfs.c` | Starter template for filesystem development |
-| `templates/my_scheduler.c` | Starter template for scheduling |
+| `templates/user_init.c` | Initialization starter template |
+| `templates/studentfs.c` | Filesystem development template |
+| `templates/my_scheduler.c` | Scheduling starter template |
 
-These files provide a starting point; available hooks and integration requirements depend on the current implementation.
+### Suggested Learning Path
 
-### Suggested learning path
-
-1. Build and boot MyOS.
-2. Explore the kernel through the shell.
-3. Read `docs/ARCHITECTURE.md` to understand subsystem boundaries.
-4. Modify `src/user/user_init.c` to experiment with initialization or custom commands.
-5. Study `src/fs/` and `docs/WRITING_A_FILESYSTEM.md` before implementing a filesystem.
-6. Study `src/proc/` and `docs/PROCESSES_AND_SCHEDULING.md` before changing scheduling.
-7. Run the available self-tests after each significant change.
+1. Clone and build MyOS.
+2. Boot it in QEMU.
+3. Explore the system through the shell.
+4. Read `docs/ARCHITECTURE.md` to understand the kernel structure.
+5. Experiment with `src/user/user_init.c`.
+6. Study `src/fs/` before implementing filesystem functionality.
+7. Read `docs/WRITING_A_FILESYSTEM.md`.
+8. Explore `src/proc/` and the scheduler implementation.
+9. Run the available tests after making changes.
 
 ## Documentation
 
-The `docs/` directory contains dedicated guides for the major subsystems.
+The `docs/` directory contains guides for major project subsystems.
 
-- Architecture — kernel structure and subsystem design.
-- GUI Roadmap — graphical interface development plans.
-- Processes and Scheduling — process and scheduler design.
-- Writing a Filesystem — filesystem development guide.
+| Document | Description |
+|---|---|
+| `ARCHITECTURE.md` | Kernel architecture and subsystem design |
+| `GUI_ROADMAP.md` | Graphical interface development plans |
+| `PROCESSES_AND_SCHEDULING.md` | Process and scheduler design |
+| `WRITING_A_FILESYSTEM.md` | Filesystem development guide |
 
-These documents should be updated whenever the corresponding implementation or supported interfaces change.
+Documentation should be updated whenever the corresponding implementation or supported interfaces change.
 
 ## Testing
 
-The repository includes kernel self-test sources and a host-side test Makefile.
+MyOS includes kernel self-test sources and host-side test infrastructure.
 
 Relevant files include:
 
-text
-
-```
+```text
 src/test/selftest.c
 src/test/selftest_fs.c
 src/test/selftest_gfx.c
@@ -533,104 +622,140 @@ src/test/selftest_shell.c
 tests/host/Makefile
 ```
 
-### Running tests
+### Kernel Tests
 
-Inspect the Makefile and shell help for the current test entry points.
+If the current kernel exposes a `selftest` command, run it from the MyOS shell:
 
-If the kernel exposes a `selftest` command, run it from the MyOS shell:
-
-text
-
-```
+```text
 MyOS> selftest
 ```
 
-Host-side tests can be investigated from the test directory:
+### Host-Side Tests
 
-bash
+Inspect the host test Makefile and run its available targets:
 
-```
+```bash
 make -C tests/host
 ```
 
-Use the targets defined in `tests/host/Makefile` if the default target differs.
+The existence of test source files does not guarantee that every test passes.
 
-Report the actual test results in release notes. The existence of test source files does not by itself establish that all tests pass.
+**MyOS 2.7.0 testing status:** The release has been compiled but has not been run or runtime-tested. Runtime compatibility and behavior of its features have not yet been verified.
+
+## Known Limitations
+
+MyOS is an actively developed hobby operating system. Some subsystems are experimental or have limited hardware support.
+
+### MyOS 2.7.0 Limitations
+
+- **Wi-Fi:** No Wi-Fi driver is available. Wi-Fi chipsets require vendor firmware and dedicated drivers. Ethernet should be used instead.
+- **Bluetooth:** Initial USB dongle detection and scanning are available, but pairing, Bluetooth audio, and Bluetooth mouse support are not implemented.
+- **Speech:** The screen reader and Assistant do not have a speech engine. The screen reader uses visual captions and PC-speaker tones.
+- **Microphone:** Microphone input is not supported.
+- **Automatic updates:** Update detection is available, but automatic downloading and installation are not implemented. Kernel replacement remains manual.
+- **HTTPS:** The current HTTP functionality does not support HTTPS.
+- **TCP reliability:** Only one connection at a time is supported, and retransmission handling is not implemented.
+- **Translations:** Translation coverage is limited to setup screens, login, and Settings page names. Other menus and applications remain in English.
+- **CJK fonts:** Japanese and Chinese interfaces fall back to English because CJK font support is unavailable.
+
+Other hardware and subsystem limitations may apply depending on the build and emulator configuration.
 
 ## Troubleshooting
 
-### GRUB cannot find or load the kernel
+### GRUB Cannot Find or Load the Kernel
 
 Check that the ISO contains the kernel at the path configured in `iso/boot/grub/grub.cfg`.
 
-Rebuild the kernel and ISO after changing the source:
+Rebuild the kernel and ISO:
 
-bash
-
-```
+```bash
 make clean
 make
 make iso
 ```
 
-### `grub-file` or `grub2-file` is missing
+### GRUB Utilities Are Missing
 
-Install the relevant GRUB utilities for your distribution. If available, check the kernel's Multiboot format with:
+Install the GRUB utilities for your Linux distribution.
 
-bash
+If available, check the kernel's Multiboot format:
 
-```
+```bash
 grub-file --is-x86-multiboot kernel.elf
 ```
 
 Some distributions provide `grub2-file` instead.
 
-### The desktop does not appear
+### The Desktop Does Not Appear
 
-Check the GRUB menu and confirm that the graphical option is enabled in the current build. Test the text-shell option to help distinguish a graphics problem from a general boot failure.
+- Check the GRUB boot menu.
+- Confirm that the graphical option is enabled in the current build.
+- Try the text-shell option to distinguish a graphics issue from a general boot failure.
 
-### ATA disks are unavailable
+### ATA Disks Are Unavailable
 
 Check whether the virtual machine exposes a compatible IDE/ATA device and whether the disk driver and block-device registration are initialized.
 
-A RAM disk may be a useful alternative when supported by the current build.
+A RAM disk may be an alternative when supported by the current build.
 
-### Keyboard or mouse input does not work
+### Keyboard or Mouse Input Does Not Work
 
-Verify the VM's input-device configuration and the current PS/2 driver support. Device behavior can differ between QEMU, Bochs, VirtualBox, VMware, and UEFI-based environments.
+Verify the virtual machine's input-device configuration and the current PS/2 driver support.
+
+Device behavior can differ between QEMU, Bochs, VirtualBox, VMware, and UEFI-based environments.
+
+### Network or Bluetooth Features Do Not Work
+
+Remember that MyOS 2.7.0 has not been runtime-tested. Network and Bluetooth support also have the limitations described above. Check the available drivers and device compatibility before troubleshooting individual applications.
 
 ## Roadmap
 
-Future development should be guided by the actual implementation and the subsystem documentation.
-
-Potential areas for improvement include:
+Potential areas for future development include:
 
 - Improving kernel robustness and error reporting.
-- Expanding filesystem functionality and disk compatibility.
+- Expanding filesystem functionality and storage compatibility.
 - Extending scheduler policies and synchronization primitives.
 - Improving graphics, window management, and desktop usability.
-- Expanding automated tests and emulator coverage.
-- Improving debugging tools and kernel diagnostics.
-- Documenting supported hardware, boot modes, and known limitations.
+- Adding Wi-Fi driver support.
+- Expanding Bluetooth functionality, including pairing and audio.
+- Improving TCP reliability and adding HTTPS support.
+- Developing speech output and microphone support.
+- Expanding automatic update functionality.
+- Extending translation coverage and font support.
+- Improving automated testing and emulator coverage.
+- Expanding debugging tools and kernel diagnostics.
 
-See GUI Roadmap and the other design documents for subsystem-specific plans.
+These are development directions, not promises of inclusion in a particular release.
 
 ## Contributing
 
 Contributions, bug reports, documentation improvements, and new ideas are welcome.
 
-1. Explore the existing source and documentation.
+To contribute:
+
+1. Explore the existing source code and documentation.
 2. Open an issue before making a large architectural change.
 3. Keep changes focused on a specific subsystem.
-4. Run relevant build and test targets.
+4. Build and test your changes where possible.
 5. Include reproducible steps and actual test results in bug reports and pull requests.
 
-For bugs, include the emulator or hardware used, firmware mode, build commands, observed behavior, and relevant logs.
+When reporting bugs, include:
 
-Repository: github.com/arshc0der/myOS
+- MyOS version.
+- Emulator or physical hardware used.
+- Firmware mode and virtual hardware configuration.
+- Build commands.
+- Steps to reproduce the issue.
+- Relevant logs and observed behavior.
+
+**Repository:** [github.com/arshc0der/myOS](https://github.com/arshc0der/myOS)
 
 ## License
 
-MyOS is released under the MIT License.
+MyOS is released under the **MIT License**.
 
-See the `LICENSE` file for the complete terms.
+See the [LICENSE](LICENSE) file for the complete license terms.
+
+---
+
+**MyOS 2.7.0 — Exploring operating system development, one subsystem at a time.**
