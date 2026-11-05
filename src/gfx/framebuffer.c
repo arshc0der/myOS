@@ -24,6 +24,13 @@ static uint8_t rpos, rsize, gpos, gsize, bpos, bsize;
 static bool fast32;                     /* 32 bpp, standard XRGB: plain copy */
 
 static paddr_t back_addr;
+/* What the display currently shows. gfx_flush only writes the pixels that differ: the frame buffer is
+ * uncached memory, so every byte not written is a big saving (a still desktop costs almost nothing). */
+static uint32_t *shadow;
+static paddr_t shadow_addr;
+static uint32_t shadow_pages;
+static const uint32_t *shadow_for;
+static bool shadow_ok;
 static uint32_t back_pages;
 
 bool gfx_available(void) { return ready; }
@@ -58,6 +65,7 @@ void gfx_set_pixel_format(int mode)
     if (!ready)
         return;
     fmt_choice = mode;
+    shadow_ok = false;
     const struct boot_fb *f = &boot_info.fb;
     if (mode == 0) {
         rpos = f->red_pos; rsize = f->red_size; gpos = f->green_pos; gsize = f->green_size;
@@ -137,6 +145,21 @@ static inline uint32_t pack(uint32_t c)
            ((b >> (8 - bsize)) << bpos);
 }
 
+static void shadow_prepare(void)
+{
+    uint32_t pages = ((uint32_t)screen.w * (uint32_t)screen.h * 4 + PAGE_SIZE - 1) / PAGE_SIZE;
+
+    if (shadow && shadow_for == screen.px && shadow_pages == pages)
+        return;
+    if (shadow)
+        pmm_free_pages(shadow_addr, shadow_pages);
+    shadow_addr = pmm_alloc_contiguous(pages);
+    shadow = shadow_addr ? (uint32_t *)shadow_addr : NULL;
+    shadow_pages = pages;
+    shadow_for = screen.px;
+    shadow_ok = false;
+}
+
 void gfx_flush(int x, int y, int w, int h)
 {
     if (!ready)
@@ -146,10 +169,23 @@ void gfx_flush(int x, int y, int w, int h)
 
     if (x0 >= x1 || y0 >= y1)
         return;
+    shadow_prepare();
     for (int j = y0; j < y1; j++) {
         const uint32_t *src = &screen.px[j * screen.stride + x0];
-        uint8_t *dst = fb + (size_t)j * fb_pitch + (size_t)x0 * (fb_bpp / 8);
-        int n = x1 - x0;
+        uint32_t *sh = shadow ? &shadow[(size_t)j * (size_t)screen.w + (size_t)x0] : NULL;
+        int n = x1 - x0, a = 0, b = n;
+
+        if (sh && shadow_ok) {                      /* narrow the row to the changed span */
+            while (a < n && src[a] == sh[a]) a++;
+            if (a == n)
+                continue;
+            while (b > a && src[b - 1] == sh[b - 1]) b--;
+        }
+        if (sh)
+            memcpy(sh + a, src + a, (size_t)(b - a) * 4);
+        uint8_t *dst = fb + (size_t)j * fb_pitch + (size_t)(x0 + a) * (fb_bpp / 8);
+        src += a;
+        n = b - a;
 
         if (fast32) {
             memcpy(dst, src, (size_t)n * 4);
@@ -170,6 +206,8 @@ void gfx_flush(int x, int y, int w, int h)
                 d[i] = (uint16_t)pack(src[i]);
         }
     }
+    if (x0 == 0 && y0 == 0 && x1 == screen.w && y1 == screen.h)
+        shadow_ok = shadow != NULL;                 /* a full pass makes the shadow trustworthy */
 }
 
 void gfx_flush_all(void)

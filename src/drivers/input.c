@@ -5,6 +5,7 @@
 #include "timer.h"
 #include "io.h"
 #include "kerror.h"
+#include "sys.h"
 
 #define QSIZE 256
 
@@ -18,9 +19,36 @@ void input_init(void)
     head = tail = 0;
 }
 
-void input_push(const struct input_event *ev)
+/* Keyboard layouts: the hardware always sends US key codes, so other layouts are applied on the
+ * resulting characters (swap tables). Covers the letters and the most common punctuation. */
+static int layout_map(int c)
 {
-    uint32_t f = irq_save();
+    static const char *const swaps[5] = {
+        "",                                     /* 0 US */
+        "\"@",                               /* 1 UK: shift-2 and shift-' trade places */
+        "yzYZ",                                 /* 2 German QWERTZ */
+        "aqAQzwZW;m:M",                         /* 3 French AZERTY (letters and ; m) */
+        "",                                     /* 4 Hindi (Inscript needs a Devanagari font): US */
+    };
+    int l = sys_prefs.kbd_layout;
+    if (l < 1 || l > 3)
+        return c;
+    for (const char *p = swaps[l]; p[0] && p[1]; p += 2) {
+        if (c == p[0]) return p[1];
+        if (c == p[1]) return p[0];
+    }
+    return c;
+}
+
+void input_push(const struct input_event *ev0)
+{
+    struct input_event e2 = *ev0;
+    const struct input_event *ev = &e2;
+    uint32_t f;
+
+    if (e2.type == INPUT_KEY && e2.key >= 32 && e2.key < 127 && !(e2.mods & (MOD_CTRL | MOD_ALT)))
+        e2.key = layout_map(e2.key);
+    f = irq_save();
     uint32_t next = (head + 1) % QSIZE;
 
     if (next == tail) {                     /* full: drop the newest */

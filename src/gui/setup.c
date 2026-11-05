@@ -200,14 +200,14 @@ static void card(struct gfx_surface *s, int cx, int cy, int cw, int ch)
 /* Setup state                                                         */
 /* ------------------------------------------------------------------ */
 
-enum { S_WELCOME, S_POST, S_LANG, S_REGION, S_ACCESS, S_KEYB, S_NET, S_PRIV, S_ACCOUNT, S_NAME, S_TIME, S_PREFS, S_FINISH, S_COUNT };
+enum { S_WELCOME, S_POST, S_DISK, S_LANG, S_REGION, S_ACCESS, S_KEYB, S_NET, S_PRIV, S_ACCOUNT, S_NAME, S_TIME, S_PREFS, S_FINISH, S_COUNT };
 
 static const char *const step_title[S_COUNT] = {
-    "Welcome", "Hardware check", "Language", "Country or region", "Accessibility", "Keyboard", "Network",
+    "Welcome", "Hardware check", "Storage", "Language", "Country or region", "Accessibility", "Keyboard", "Network",
     "Data and privacy", "Create your account", "Computer name", "Date and time", "Final preferences", "Finishing",
 };
 static const char *const step_sub[S_COUNT] = {
-    "", "MyOS is checking this computer.", "Choose the language you want to use.",
+    "", "MyOS is checking this computer.", "Keep your accounts and settings after a restart.", "Choose the language you want to use.",
     "This sets the time zone, date format and clock.", "Turn on features that make the computer easier to use.",
     "Pick your layout and check that your keys work.", "Connect to a network, or skip and do it later.",
     "Choose what MyOS may share. You can change this later.", "This account is the administrator of the computer.",
@@ -222,6 +222,8 @@ static bool done_flag;
 static char fullname[32], uname[24], pw1[24], pw2[24], host[24], wifipw[34];
 static bool acct_admin = true;
 static int net_sel_ap = -1;
+static int disk_sel, disk_confirm;
+static char disk_msg[72];
 static struct wifi_ap aps[6];
 static int nap;
 
@@ -379,7 +381,7 @@ static void go(int to)
 
 static bool skippable(int st)
 {
-    return st == S_ACCESS || st == S_KEYB || st == S_NET || st == S_PREFS || (st == S_ACCOUNT && users_count() > 0);
+    return st == S_DISK || st == S_ACCESS || st == S_KEYB || st == S_NET || st == S_PREFS || (st == S_ACCOUNT && users_count() > 0);
 }
 
 static void suggest_user(void)
@@ -528,7 +530,8 @@ static void draw_welcome(struct gfx_surface *s)
     gfx_text(s, (scw - tw) / 2, sch / 2 - 40, g, gfx_blend(gui_th->bg_bot, gui_th->text, MIN(255, alpha)), GFX_TRANSPARENT, 6);
     gui_label_center(s, 0, sch / 2 + 30, scw, "Welcome to MyOS", gui_th->dim);
     button(s, scw / 2 - 90, sch / 2 + 70, 180, 38, "Start Setup", H_START, true);
-    gui_label_center(s, 0, sch / 2 + 124, scw, "Press Enter or click Start Setup", gui_th->dim);
+    button(s, scw / 2 - 90, sch / 2 + 118, 180, 30, "Quick Setup", H_BTN2, false);
+    gui_label_center(s, 0, sch / 2 + 160, scw, "Quick Setup: account \"user\" without a password and default settings", gui_th->dim);
 }
 
 static void draw_post(struct gfx_surface *s)
@@ -561,6 +564,36 @@ static void draw_post(struct gfx_surface *s)
     }
     gui_progress(s, BX, BY + 9 * 30 + 4, BW, 8, post_shown, npost);
     draw_hint(s, post_shown >= npost ? "Hardware check finished. Yellow means a note, not an error." : "Checking...");
+}
+
+
+static void draw_disk(struct gfx_surface *s)
+{
+    char names[8][16], l[72];
+    uint32_t mb[8];
+    int n = sys_disk_candidates(names, mb, 8);
+
+    if (sys_users_persistent()) {
+        gfx_fill_circle(s, BX + 8, BY + 8, 6, GREEN);
+        gfx_text(s, BX + 24, BY + 4, "Storage is ready: accounts and settings are kept on disk.", gui_th->text, GFX_TRANSPARENT, 1);
+        return;
+    }
+    gfx_text(s, BX, BY, "MyOS needs a disk to remember your account and settings.", gui_th->text, GFX_TRANSPARENT, 1);
+    if (!n) {
+        gfx_text(s, BX, BY + 28, "No disk found. Without one, setup runs again at every start.", AMBER, GFX_TRANSPARENT, 1);
+        gfx_text(s, BX, BY + 52, "Add one and restart. QEMU:  make run  (creates myos-disk.img)", gui_th->dim, GFX_TRANSPARENT, 1);
+        gfx_text(s, BX, BY + 68, "UTM or a real PC: attach an IDE/SATA-IDE disk or USB stick.", gui_th->dim, GFX_TRANSPARENT, 1);
+        return;
+    }
+    gfx_text(s, BX, BY + 22, "Choose a disk. It will be ERASED and formatted as MyFS.", gui_th->dim, GFX_TRANSPARENT, 1);
+    for (int i = 0; i < n; i++) {
+        ksnprintf(l, sizeof l, "%s    %u MB", names[i], mb[i]);
+        row(s, BX, BY + 44 + i * 32, 320, l, disk_sel == i, H_ROW + i);
+    }
+    if (disk_sel >= n) disk_sel = 0;
+    button(s, BX, BY + 52 + n * 32, 260, 30, disk_confirm ? "Click again to ERASE and use it" : "Use this disk (erases it)", H_BTN1, disk_confirm != 0);
+    if (disk_msg[0])
+        gfx_text(s, BX, BY + 92 + n * 32, disk_msg, disk_msg[0] == 'F' ? RED : GREEN, GFX_TRANSPARENT, 1);
 }
 
 static void draw_lang(struct gfx_surface *s)
@@ -876,6 +909,7 @@ static void draw_step(struct gfx_surface *s)
     gfx_text(s, BX, CY + 60, step_sub[step], gui_th->dim, GFX_TRANSPARENT, 1);
     switch (step) {
     case S_POST: draw_post(s); break;
+    case S_DISK: draw_disk(s); break;
     case S_LANG: draw_lang(s); break;
     case S_REGION: draw_region(s); break;
     case S_ACCESS: draw_access(s); break;
@@ -915,6 +949,19 @@ static void click_id(int id)
         errmsg[0] = 0;
         if (step + 1 < S_COUNT) go(step + 1);
         return;
+    case H_BTN2:
+        if (step == S_WELCOME) {                       /* Quick Setup: defaults, account "user", no password */
+            strlcpy(fullname, "User", sizeof fullname);
+            strlcpy(uname, "user", sizeof uname);
+            pw1[0] = pw2[0] = 0;
+            sys_prefs.require_password = false;
+            sys_auto_prepare();
+            for (int i = 0; i < users_count(); i++)
+                if (!strcmp(users_get(i)->name, "user")) { uname[0] = 0; break; }
+            maxstep = S_FINISH;
+            go(S_FINISH);
+        }
+        return;
     case H_START:
         if (step == S_WELCOME) go(S_POST);
         else if (step == S_FINISH && fin_welcome) done_flag = true;
@@ -941,11 +988,25 @@ static void click_id(int id)
     if (id >= H_ROW && id < H_ROW + 40) {
         int i = id - H_ROW;
         switch (step) {
+        case S_DISK: disk_sel = i; disk_confirm = 0; break;
         case S_LANG: sys_prefs.language = i; break;
         case S_REGION: sys_country_apply(i); break;
         case S_KEYB: sys_prefs.kbd_layout = i; break;
         case S_TIME: sys_place_set(i); break;
         case S_NET: net_sel_ap = i; focus = (i < nap && aps[i].secured) ? 0 : -1; break;
+        }
+        return;
+    }
+    if (step == S_DISK && id == H_BTN1) {
+        char names[8][16]; uint32_t mb[8];
+        int n = sys_disk_candidates(names, mb, 8);
+        if (disk_sel < n) {
+            if (!disk_confirm) { disk_confirm = 1; return; }
+            disk_confirm = 0;
+            if (sys_use_disk_for_users(names[disk_sel]) == 0)
+                ksnprintf(disk_msg, sizeof disk_msg, "Done. Settings are saved on %s.", names[disk_sel]);
+            else
+                ksnprintf(disk_msg, sizeof disk_msg, "Failed: the disk could not be formatted.");
         }
         return;
     }
@@ -1053,6 +1114,8 @@ static void init_state(void)
     acct_admin = true;
     net_sel_ap = -1;
     nap = 0;
+    disk_sel = disk_confirm = 0;
+    disk_msg[0] = 0;
     net_result = -3;
     fin_stage = fin_tick = 0;
     fin_welcome = false;
@@ -1117,8 +1180,10 @@ void gui_setup_assistant(void)
                         go(S_ACCOUNT);
                         continue;
                     }
-                    if (++fin_stage >= 6)
+                    if (++fin_stage >= 6) {
                         fin_welcome = true;
+                        speaker_beep(880, 120);
+                    }
                 }
             } else if (fin_tick++ > 400)
                 done_flag = true;

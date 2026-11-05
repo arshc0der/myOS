@@ -20,7 +20,13 @@
 
 /* ---- standard folders and volumes ---- */
 void sys_init(void);                            /* create folders, mount disks (call after ata_init) */
-bool sys_users_persistent(void);                /* /Users is on a real disk */
+bool sys_users_persistent(void);
+/* Disks a user could keep /Users on (not RAM disks). Returns count. */
+int  sys_disk_candidates(char names[][16], uint32_t mb[], int max);
+/* Erase `dev`, make a MyFS on it and use it for /Users so settings and accounts survive restarts. */
+int  sys_use_disk_for_users(const char *dev);
+/* Same for the first completely blank disk (used by Quick Setup). 1 if done. */
+int  sys_auto_prepare(void);                /* /Users is on a real disk */
 const char *sys_volume_path(const char *dev);   /* where `dev` is mounted, or NULL */
 int  sys_volume_mount(const char *dev);         /* mount as MyFS under /Volumes */
 int  sys_volume_format(const char *dev);        /* erase + MyFS + mount */

@@ -57,12 +57,16 @@ iso: kernel.elf
 	$(GRUB_MKRESCUE) -o myos.iso $(BUILD)/iso
 	@echo "Built myos.iso"
 
-run: iso
-	qemu-system-i386 -cdrom myos.iso -m 128M -serial stdio -vga std -device qemu-xhci -device usb-tablet
+myos-disk.img:
+	dd if=/dev/zero of=myos-disk.img bs=1M count=128 2>/dev/null
+	@echo "Created myos-disk.img (blank 128 MB disk: MyOS keeps accounts and settings here)"
 
-run-uefi: iso
+run: iso myos-disk.img
+	qemu-system-i386 -cdrom myos.iso -hda myos-disk.img -boot d -m 128M -serial stdio -vga std -device qemu-xhci -device usb-tablet
+
+run-uefi: iso myos-disk.img
 	@echo "Needs OVMF firmware; see docs/BUILDING.md"
-	qemu-system-x86_64 -cdrom myos.iso -m 256M -serial stdio -bios $(OVMF) -vga std -device qemu-xhci -device usb-tablet
+	qemu-system-x86_64 -cdrom myos.iso -hda myos-disk.img -m 256M -serial stdio -bios $(OVMF) -vga std -device qemu-xhci -device usb-tablet
 
 test:
 	$(MAKE) -C tests/host

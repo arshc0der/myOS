@@ -10,6 +10,7 @@
 #include "fileops.h"
 
 static bool persistent;
+static int nusers, cur = -1;
 static struct blockdev *found[16];
 static int n_found;
 
@@ -75,6 +76,60 @@ int sys_volume_format(const char *dev)
 
 bool sys_users_persistent(void) { return persistent; }
 
+int sys_disk_candidates(char names[][16], uint32_t mb[], int max)
+{
+    int n = 0;
+    n_found = 0;
+    blockdev_for_each(collect, NULL);
+    for (int i = 0; i < n_found && n < max; i++) {
+        strlcpy(names[n], found[i]->name, 16);
+        mb[n] = found[i]->sector_count / 2048;
+        n++;
+    }
+    return n;
+}
+
+int sys_use_disk_for_users(const char *dev)
+{
+    const char *mp = sys_volume_path(dev);
+    int r;
+
+    if (persistent)
+        return 0;
+    if (mp)
+        vfs_umount(mp);
+    r = vfs_mkfs("myfs", dev);
+    if (r < 0)
+        return r;
+    if (vfs_mount(dev, "/Users", "myfs") < 0)
+        return -EIO;
+    persistent = true;
+    nusers = 0;
+    cur = -1;
+    sys_prefs_save();
+    return 0;
+}
+
+int sys_auto_prepare(void)
+{
+    char names[8][16];
+    uint32_t mb[8];
+    int n = sys_disk_candidates(names, mb, 8);
+
+    if (persistent)
+        return 0;
+    for (int i = 0; i < n; i++) {
+        struct blockdev *d = blockdev_find(names[i]);
+        static uint8_t buf[SECTOR_SIZE * 8];
+        bool blank = d && d->sector_count > 64 && blockdev_read(d, 0, 8, buf) == 0;
+        for (int k = 0; blank && k < (int)sizeof buf; k++)
+            if (buf[k]) blank = false;
+        if (blank && sys_use_disk_for_users(names[i]) == 0)
+            return 1;
+    }
+    return 0;
+}
+
 void sys_init(void)
 {
     static const char *dirs[] = { "/Volumes", "/Users", "/System", "/Applications", "/tmp", "/etc", "/mnt" };
@@ -108,8 +163,7 @@ void sys_init(void)
 
 #define ACCOUNTS "/Users/.accounts"
 static struct sys_user users[SYS_MAX_USERS];
-static int nusers;
-static int cur = -1;
+
 
 /* FNV-1a with a fixed salt. This keeps passwords out of plain sight; it is a teaching
  * example, not strong security. */

@@ -3,6 +3,7 @@
 #include "isr.h"
 #include "io.h"
 #include "sched.h"
+#include "sys.h"
 
 static volatile uint32_t ticks;
 static void (*tick_hook)(void);
@@ -41,4 +42,18 @@ void timer_sleep_ms(uint32_t ms)
     }
     while ((int32_t)(until - ticks) > 0)
         cpu_hlt_wait();
+}
+
+/* PC speaker: PIT channel 2 square wave. Real hardware beeps; QEMU needs "-audiodev ... -machine pcspk-audiodev=...". */
+void speaker_beep(uint32_t hz, uint32_t ms)
+{
+    if (sys_prefs.muted || sys_prefs.volume == 0 || hz < 40 || hz > 20000)
+        return;
+    uint32_t div = 1193182u / hz;
+    outb(0x43, 0xB6);
+    outb(0x42, (uint8_t)(div & 0xFF));
+    outb(0x42, (uint8_t)(div >> 8));
+    outb(0x61, inb(0x61) | 3);
+    timer_sleep_ms(ms);
+    outb(0x61, inb(0x61) & ~3);
 }
