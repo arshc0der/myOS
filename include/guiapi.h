@@ -100,6 +100,7 @@ struct gui_app {
     void (*key)(struct gui_window *w, int key, int mods);     /* keyboard (focused)    */
     void (*click)(struct gui_window *w, int x, int y, int buttons);  /* x,y inside client */
     void (*tick)(struct gui_window *w);                       /* about 10 times a second */
+    bool (*close_request)(struct gui_window *w);              /* return false to keep the window open (ask to save) */
     void (*scroll)(struct gui_window *w, int lines);          /* mouse wheel / touchpad edge scroll: > 0 = down */
     /* Menus in the menu bar (File, Edit, ...) and the callback that receives the chosen id. */
     const struct gui_menu *menus;
@@ -120,6 +121,7 @@ struct gui_window {
     struct gfx_surface *surf;       /* draw here                       */
     uint32_t born;                  /* tick when opened                */
     bool want_close;
+    bool force_close;               /* close without asking (the app already asked) */
     bool minimized;
     bool maximized;
     bool fullscreen;                /* covers the whole screen, no menu bar or dock (F11) */
@@ -154,6 +156,9 @@ void  gui_popup(struct gui_window *w, int x, int y, const struct gui_menu_item *
 /* Dialogs. The answer arrives in the app's dialog() callback with the same id. */
 void  gui_prompt(struct gui_window *w, const char *title, const char *initial, int id);
 void  gui_confirm(struct gui_window *w, const char *title, const char *message, int id);
+/* "Save / Don't Save / Cancel": dialog() gets ok=true for Save, ok=false with text "discard" for Don't Save,
+ * ok=false with empty text for Cancel. */
+void  gui_ask_save(struct gui_window *w, const char *title, const char *message, int id);
 void  gui_alert(struct gui_window *w, const char *title, const char *message);
 
 /* Clipboard shared by all apps (text up to 255 characters, or a file path). */

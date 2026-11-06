@@ -76,6 +76,7 @@ struct xiso {
 
 struct xdev {
     bool used;
+    void *ctl;                          /* the controller this device is on */
     int slot;
     struct usb_dev *ud;
     paddr_t out_p, in_p;
@@ -85,8 +86,8 @@ struct xdev {
     struct xiso iso;
 };
 
-static struct {
-    bool ok;
+struct xhci {
+    bool ok, taken;
     volatile uint8_t *cap, *op, *rt, *db;
     int ctxsz, maxslots, maxports;
     uint32_t *dcbaa;
@@ -95,7 +96,13 @@ static struct {
     paddr_t evt_phys;
     int evt_idx, evt_ccs;
     uint32_t pagesize;
-} X;
+};
+
+/* up to three xHCI controllers (many PCs have two); `xp` is the one the current call works on */
+#define MAX_XHCI 3
+static struct xhci XS[MAX_XHCI];
+static struct xhci *xp = &XS[0];
+#define X (*xp)
 
 static struct xdev xdevs[USB_MAX_DEVS];
 
@@ -165,7 +172,7 @@ static void ring_free(struct ring *r)
 static struct xdev *find_dev(int slot)
 {
     for (int i = 0; i < USB_MAX_DEVS; i++)
-        if (xdevs[i].used && xdevs[i].slot == slot)
+        if (xdevs[i].used && xdevs[i].slot == slot && xdevs[i].ctl == xp)
             return &xdevs[i];
     return NULL;
 }
@@ -272,6 +279,7 @@ static void events_poll(void)
 
 static void xhci_poll(struct usb_hc *hc)
 {
+    xp = hc->priv;
     (void)hc;
     events_poll();
 }
@@ -317,6 +325,7 @@ static void ep0_recover(struct xdev *d)
 
 static int xhci_ctrl(struct usb_dev *ud, uint8_t rt, uint8_t req, uint16_t val, uint16_t idx, uint16_t len)
 {
+    xp = ud->hc->priv;
     struct xdev *d = ud->hcpriv;
     bool in = (rt & 0x80) != 0;
     uint32_t trt = len ? (in ? 3u : 2u) : 0u;
@@ -440,6 +449,7 @@ static void free_dev(struct xdev *d)
 
 static int xhci_dev_alloc(struct usb_dev *ud)
 {
+    xp = ud->hc->priv;
     uint32_t slot = 0;
     int cc = command(0, CMD_ENABLE_SLOT << 10, &slot);
 
@@ -461,6 +471,7 @@ static int xhci_dev_alloc(struct usb_dev *ud)
     d->out = dma_page(&d->out_p);
     d->in = dma_page(&d->in_p);
     d->slot = (int)slot;
+    d->ctl = xp;
     d->ud = ud;
     d->used = true;
     ud->hcpriv = d;
@@ -476,6 +487,7 @@ static int xhci_dev_alloc(struct usb_dev *ud)
 
 static int xhci_dev_address(struct usb_dev *ud)
 {
+    xp = ud->hc->priv;
     struct xdev *d = ud->hcpriv;
 
     memset(d->in, 0, 4096);
@@ -498,6 +510,7 @@ static int xhci_dev_address(struct usb_dev *ud)
 
 static int xhci_set_mps0(struct usb_dev *ud, int mps)
 {
+    xp = ud->hc->priv;
     struct xdev *d = ud->hcpriv;
 
     memset(d->in, 0, 4096);
@@ -511,6 +524,7 @@ static int xhci_set_mps0(struct usb_dev *ud, int mps)
 
 static void xhci_dev_free(struct usb_dev *ud)
 {
+    xp = ud->hc->priv;
     struct xdev *d = ud->hcpriv;
 
     if (!d)
@@ -524,6 +538,7 @@ static void xhci_dev_free(struct usb_dev *ud)
 /* Called once all endpoints of the device are known (and once for a hub). */
 static int xhci_configure(struct usb_dev *ud)
 {
+    xp = ud->hc->priv;
     struct xdev *d = ud->hcpriv;
     int maxdci = 1;
 
@@ -568,6 +583,7 @@ static int xhci_configure(struct usb_dev *ud)
 static int xhci_iso_start(struct usb_dev *ud, int epnum, int mps, int burst, int interval,
                           void (*cb)(void *ctx, const uint8_t *data, int len), void *ctx)
 {
+    xp = ud->hc->priv;
     struct xdev *d = ud->hcpriv;
     struct xiso *I;
 
@@ -624,6 +640,7 @@ fail:
 
 static void xhci_iso_stop(struct usb_dev *ud)
 {
+    xp = ud->hc->priv;
     struct xdev *d = ud->hcpriv;
 
     if (!d || !d->iso.on)
@@ -638,6 +655,7 @@ static void xhci_iso_stop(struct usb_dev *ud)
 
 static int xhci_intr_start(struct usb_dev *ud, struct usb_ep *u)
 {
+    xp = ud->hc->priv;
     requeue(ud->hcpriv, u->hcpriv);
     return 0;
 }
@@ -655,6 +673,7 @@ static volatile uint32_t *portsc(int port) { return (volatile uint32_t *)(X.op +
 
 static int xhci_rh_connected(struct usb_hc *hc, int port)
 {
+    xp = hc->priv;
     (void)hc;
     uint32_t v = rd(portsc(port));
 
@@ -665,6 +684,7 @@ static int xhci_rh_connected(struct usb_hc *hc, int port)
 
 static int xhci_rh_reset(struct usb_hc *hc, int port)
 {
+    xp = hc->priv;
     (void)hc;
     uint32_t v = rd(portsc(port));
 
@@ -746,6 +766,15 @@ static bool controller_init(const struct pci_device *pd)
 {
     uint8_t b = pd->bus, s = pd->slot, f = pd->func;
     uint32_t bar = pci_cfg_read(b, s, f, 0x10);
+
+    /* Intel 7/8/9-series chipsets keep USB 2 ports on the EHCI controller until the OS moves them to xHCI
+     * (XUSB2PR at 0xD0, USB3_PSSEN at 0xD8). Without this, devices on such ports are not seen by this driver. */
+    if (pd->vendor == 0x8086 && (pd->device == 0x1E31 || pd->device == 0x8C31 || pd->device == 0x9C31 ||
+                                 pd->device == 0x9CB1 || pd->device == 0x8CB1)) {
+        pci_cfg_write(b, s, f, 0xD8, pci_cfg_read(b, s, f, 0xDC));
+        pci_cfg_write(b, s, f, 0xD0, pci_cfg_read(b, s, f, 0xD4));
+        log_info("usb", "xHCI: USB ports routed to xHCI (Intel chipset)");
+    }
 
     if (bar & 1) {
         log_warn("usb", "xHCI BAR0 is an I/O range (unsupported)");
@@ -859,11 +888,19 @@ static bool controller_init(const struct pci_device *pd)
 
 bool xhci_probe(const struct pci_device *pd)
 {
-    if (X.ok)                                                /* only the first controller is used */
+    struct xhci *c = NULL;
+
+    for (int i = 0; i < MAX_XHCI && !c; i++)
+        if (!XS[i].taken)
+            c = &XS[i];
+    if (!c)
         return false;
+    memset(c, 0, sizeof *c);
+    xp = c;
     if (!controller_init(pd))
         return false;
+    c->taken = true;
     log_info("usb", "xHCI %04x:%04x ready: %d ports, %d slots, %d-byte contexts",
              pd->vendor, pd->device, X.maxports, X.maxslots, X.ctxsz);
-    return usb_hc_add(&xhci_ops, "xHCI", X.maxports, &X) >= 0;
+    return usb_hc_add(&xhci_ops, "xHCI", X.maxports, c) >= 0;
 }

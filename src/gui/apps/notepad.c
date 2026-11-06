@@ -7,6 +7,7 @@
 #include "kerror.h"
 #include "kprintf.h"
 #include "kstring.h"
+#include "sys.h"
 
 #define CAP 16384
 
@@ -15,7 +16,45 @@ struct note {
     int len, cur, top_line;
     char file[VFS_PATH_MAX];
     char status[56];
+    bool dirty, named;                  /* unsaved changes / the file has a name on disk */
+    int pending;                        /* what to do once the question about saving is answered */
 };
+
+enum { PEND_NONE, PEND_CLOSE, PEND_NEW, PEND_OPEN };
+enum { D_SAVEAS = 1, D_OPEN, D_GOTO, D_ASK };
+enum { C_NEW = 1, C_OPEN, C_SAVE, C_SAVEAS, C_CLOSE, C_CUT, C_COPY, C_PASTE, C_DELLINE, C_GOTO };
+
+static const struct gui_menu_item file_items[] = {
+    { "New", C_NEW }, { "Open...", C_OPEN }, { "Save", C_SAVE }, { "Save As...", C_SAVEAS }, { "Close Window", C_CLOSE },
+};
+static const struct gui_menu_item edit_items[] = {
+    { "Cut Line", C_CUT }, { "Copy Line", C_COPY }, { "Paste", C_PASTE }, { "Delete Line", C_DELLINE }, { "Go to Line...", C_GOTO },
+};
+static const struct gui_menu menus[] = {
+    { "File", file_items, (int)ARRAY_SIZE(file_items) },
+    { "Edit", edit_items, (int)ARRAY_SIZE(edit_items) },
+};
+
+static const char *base_name(const struct note *n)
+{
+    if (!n->named)
+        return "Untitled";
+    const char *b = strrchr(n->file, '/');
+    return b ? b + 1 : n->file;
+}
+
+static void update_title(struct gui_window *w, const struct note *n)
+{
+    char t[48];
+
+    ksnprintf(t, sizeof t, "%s%s", base_name(n), n->dirty ? " - Edited" : "");
+    gui_set_title(w, t);
+}
+
+static void default_dir(char *out, size_t n)
+{
+    ksnprintf(out, n, "%s/Documents/", users_current() ? users_home() : "/tmp");
+}
 
 static void cursor_pos(const struct note *n, int *line, int *col)
 {
@@ -69,9 +108,9 @@ static void notepad_open(struct gui_window *w)
         gui_close(w);
         return;
     }
-    strcpy(n->file, "/tmp/notes.txt");
-    strcpy(n->status, "New file. Ctrl+S saves to /tmp/notes.txt");
+    strcpy(n->status, "New file. Ctrl+S saves it.");
     w->priv = n;
+    gui_set_title(w, "Untitled");
 }
 
 static void notepad_close(struct gui_window *w)
@@ -84,30 +123,232 @@ static void notepad_close(struct gui_window *w)
     w->priv = NULL;
 }
 
-void notepad_open_file(const char *path)
+static void notepad_load(struct gui_window *w, const char *path)
 {
-    struct gui_window *w = gui_open_named("Notepad");
     struct note *n;
 
     if (!w || !(n = w->priv))
         return;
-    strlcpy(n->file, path, sizeof n->file);
     ssize_t r = vfs_read_file(path, n->text, CAP - 1);
-    if (r < 0) {
+    bool ok = r >= 0;
+    if (!ok) {
         ksnprintf(n->status, sizeof n->status, "Cannot read: %s", kstrerror((int)r));
-        r = 0;
-    } else {
-        strcpy(n->status, "Opened. Ctrl+S saves.");
+        gui_alert(w, "Could not open", kstrerror((int)r));
+        return;
     }
+    strlcpy(n->file, path, sizeof n->file);
+    strcpy(n->status, "Opened. Ctrl+S saves.");
     n->len = (int)r;
     n->cur = 0;
+    n->top_line = 0;
+    n->named = true;
+    n->dirty = false;
     for (int i = 0; i < n->len; i++)
         if ((uint8_t)n->text[i] > 126 || ((uint8_t)n->text[i] < 32 && n->text[i] != '\n'))
             n->text[i] = '.';
-    const char *base = strrchr(path, '/');
-    char t[40];
-    ksnprintf(t, sizeof t, "%s", base ? base + 1 : path);
-    gui_set_title(w, t);
+    update_title(w, n);
+}
+
+void notepad_open_file(const char *path)
+{
+    notepad_load(gui_open_named("Notepad"), path);
+}
+
+/* Write the file; returns true when it worked. */
+static bool save_to(struct gui_window *w, struct note *n, const char *path)
+{
+    int r = vfs_write_file(path, n->text, (size_t)n->len);
+
+    if (r < 0) {
+        ksnprintf(n->status, sizeof n->status, "Save failed: %s", kstrerror(r));
+        gui_alert(w, "Could not save", kstrerror(r));
+        return false;
+    }
+    strlcpy(n->file, path, sizeof n->file);
+    n->named = true;
+    n->dirty = false;
+    ksnprintf(n->status, sizeof n->status, "Saved %d bytes", n->len);
+    update_title(w, n);
+    return true;
+}
+
+static void ask_save_as(struct gui_window *w, struct note *n)
+{
+    char d[VFS_PATH_MAX];
+
+    if (n->named)
+        strlcpy(d, n->file, sizeof d);
+    else {
+        char dir[VFS_PATH_MAX];
+        default_dir(dir, sizeof dir);
+        ksnprintf(d, sizeof d, "%sUntitled.txt", dir);
+    }
+    gui_prompt(w, "Save as (path)", d, D_SAVEAS);
+}
+
+static void do_new(struct gui_window *w, struct note *n)
+{
+    n->len = n->cur = n->top_line = 0;
+    n->text[0] = 0;
+    n->named = n->dirty = false;
+    n->file[0] = 0;
+    strcpy(n->status, "New file. Ctrl+S saves it.");
+    update_title(w, n);
+}
+
+static void do_open_prompt(struct gui_window *w)
+{
+    char d[VFS_PATH_MAX];
+
+    default_dir(d, sizeof d);
+    gui_prompt(w, "Open file (path)", d, D_OPEN);
+}
+
+/* Run what was waiting for the save question */
+static void run_pending(struct gui_window *w, struct note *n)
+{
+    int p = n->pending;
+
+    n->pending = PEND_NONE;
+    if (p == PEND_CLOSE) {
+        w->force_close = true;
+        gui_close(w);
+    } else if (p == PEND_NEW)
+        do_new(w, n);
+    else if (p == PEND_OPEN)
+        do_open_prompt(w);
+}
+
+/* "Do you want to save?" when there are unsaved changes. Returns true if it is fine to go on right now. */
+static bool check_unsaved(struct gui_window *w, struct note *n, int pend)
+{
+    char m[96];
+
+    if (!n->dirty)
+        return true;
+    n->pending = pend;
+    ksnprintf(m, sizeof m, "Save the changes to \"%s\" before you continue?", base_name(n));
+    gui_ask_save(w, "Unsaved changes", m, D_ASK);
+    return false;
+}
+
+static bool notepad_close_request(struct gui_window *w)
+{
+    struct note *n = w->priv;
+
+    return !n || check_unsaved(w, n, PEND_CLOSE);
+}
+
+static void do_save(struct gui_window *w, struct note *n)
+{
+    if (!n->named)
+        ask_save_as(w, n);
+    else
+        save_to(w, n, n->file);
+}
+
+static void notepad_dialog(struct gui_window *w, int id, bool ok, const char *text)
+{
+    struct note *n = w->priv;
+
+    if (!n)
+        return;
+    switch (id) {
+    case D_ASK:
+        if (ok) {                                           /* Save */
+            if (n->named) {
+                if (save_to(w, n, n->file))
+                    run_pending(w, n);
+                else
+                    n->pending = PEND_NONE;
+            } else
+                ask_save_as(w, n);                          /* then continues in D_SAVEAS */
+        } else if (!strcmp(text, "discard")) {              /* Don't Save */
+            n->dirty = false;
+            run_pending(w, n);
+        } else
+            n->pending = PEND_NONE;                         /* Cancel */
+        break;
+    case D_SAVEAS:
+        if (!ok) {
+            n->pending = PEND_NONE;
+        } else if (!text[0]) {
+            gui_alert(w, "Save", "Please type a file name.");
+            n->pending = PEND_NONE;
+        } else if (save_to(w, n, text))
+            run_pending(w, n);
+        else
+            n->pending = PEND_NONE;
+        break;
+    case D_OPEN:
+        if (ok && text[0])
+            notepad_load(w, text);
+        break;
+    case D_GOTO:
+        if (ok) {
+            int line = 0;
+            for (const char *c = text; *c >= '0' && *c <= '9'; c++)
+                line = line * 10 + (*c - '0');
+            n->cur = line_start(n, MAX(0, line - 1));
+            if (n->cur > n->len) n->cur = n->len;
+            n->top_line = MAX(0, line - 5);
+        }
+        break;
+    }
+    gui_redraw();
+}
+
+static void notepad_command(struct gui_window *w, int id)
+{
+    struct note *n = w->priv;
+    int line, col;
+
+    if (!n)
+        return;
+    cursor_pos(n, &line, &col);
+    int st = line_start(n, line), len = line_len(n, st);
+    switch (id) {
+    case C_NEW:
+        if (check_unsaved(w, n, PEND_NEW))
+            do_new(w, n);
+        break;
+    case C_OPEN:
+        if (check_unsaved(w, n, PEND_OPEN))
+            do_open_prompt(w);
+        break;
+    case C_SAVE: do_save(w, n); break;
+    case C_SAVEAS: ask_save_as(w, n); break;
+    case C_CLOSE: gui_close(w); break;
+    case C_CUT:
+    case C_COPY:
+    case C_DELLINE:
+        if (id != C_DELLINE) {
+            char tmp[256];
+            size_t l = MIN((size_t)len, sizeof tmp - 2);
+            memcpy(tmp, n->text + st, l);
+            tmp[l] = 0;
+            gui_clip_set(GUI_CLIP_TEXT, tmp);
+        }
+        if (id != C_COPY) {                                  /* cut and delete remove the line */
+            int end = st + len + (st + len < n->len ? 1 : 0);
+            memmove(n->text + st, n->text + end, (size_t)(n->len - end));
+            n->len -= end - st;
+            n->cur = MIN(st, n->len);
+            n->dirty = true;
+        }
+        break;
+    case C_PASTE: {
+        const char *c = gui_clip_kind() == GUI_CLIP_TEXT ? gui_clip_get() : "";
+        for (; *c; c++)
+            insert(n, *c == '\n' || (*c >= 32 && *c < 127) ? *c : ' ');
+        n->dirty = true;
+        break;
+    }
+    case C_GOTO: gui_prompt(w, "Go to line", "1", D_GOTO); break;
+    }
+    if (n->dirty)
+        update_title(w, n);
+    gui_redraw();
 }
 
 static void notepad_key(struct gui_window *w, int key, int mods)
@@ -117,12 +358,16 @@ static void notepad_key(struct gui_window *w, int key, int mods)
 
     cursor_pos(n, &line, &col);
     if (key == 19 || ((mods & MOD_CTRL) && (key == 's' || key == 'S'))) {
-        int r = vfs_write_file(n->file, n->text, (size_t)n->len);
-        if (r < 0)
-            ksnprintf(n->status, sizeof n->status, "Save failed: %s", kstrerror(r));
-        else
-            ksnprintf(n->status, sizeof n->status, "Saved %d bytes to %s", n->len, n->file);
+        do_save(w, n);
         gui_redraw();
+        return;
+    }
+    if (key == 15 || ((mods & MOD_CTRL) && (key == 'o' || key == 'O'))) {
+        notepad_command(w, C_OPEN);
+        return;
+    }
+    if (key == 14 || ((mods & MOD_CTRL) && (key == 'n' || key == 'N'))) {
+        notepad_command(w, C_NEW);
         return;
     }
     switch (key) {
@@ -144,6 +389,7 @@ static void notepad_key(struct gui_window *w, int key, int mods)
     }
     case '\b': case 127:
         if (n->cur > 0) {
+            n->dirty = true;
             memmove(n->text + n->cur - 1, n->text + n->cur, (size_t)(n->len - n->cur));
             n->cur--;
             n->len--;
@@ -151,17 +397,22 @@ static void notepad_key(struct gui_window *w, int key, int mods)
         break;
     case KEY_DELETE:
         if (n->cur < n->len) {
+            n->dirty = true;
             memmove(n->text + n->cur, n->text + n->cur + 1, (size_t)(n->len - n->cur - 1));
             n->len--;
         }
         break;
-    case '\n': insert(n, '\n'); break;
-    case '\t': for (int i = 0; i < 4; i++) insert(n, ' '); break;
+    case '\n': insert(n, '\n'); n->dirty = true; break;
+    case '\t': for (int i = 0; i < 4; i++) insert(n, ' '); n->dirty = true; break;
     default:
-        if (key >= 32 && key < 127)
+        if (key >= 32 && key < 127) {
             insert(n, (char)key);
+            n->dirty = true;
+        }
         break;
     }
+    if (n->dirty)
+        update_title(w, n);
     cursor_pos(n, &line, &col);
     int rows = (w->ch - 22) / 16;
     if (line < n->top_line) n->top_line = line;
@@ -227,6 +478,8 @@ static void notepad_icon(struct gfx_surface *s, int x, int y, int sz, uint32_t g
 static const struct gui_app notepad_app = {
     .name = "Notepad", .title = "Notepad - new file", .cw = 560, .ch = 360, .dock = 30,
     .open = notepad_open, .close = notepad_close, .draw = notepad_draw, .key = notepad_key, .scroll = notepad_scroll,
+    .menus = menus, .nmenus = (int)ARRAY_SIZE(menus), .command = notepad_command, .dialog = notepad_dialog,
+    .close_request = notepad_close_request,
     .icon = notepad_icon,
 };
 GUI_APP(notepad_app);

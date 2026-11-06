@@ -227,6 +227,8 @@ struct gui_window *gui_open_named(const char *name)
 
 void gui_close(struct gui_window *w)
 {
+    if (!w->force_close && w->app->close_request && !w->app->close_request(w))
+        return;                                         /* the app is asking the user first */
     w->want_close = true;
     gui_redraw();
 }
@@ -1270,6 +1272,11 @@ void gui_confirm(struct gui_window *w, const char *title, const char *message, i
     dlg_start(w, 1, title, message, "", id);
 }
 
+void gui_ask_save(struct gui_window *w, const char *title, const char *message, int id)
+{
+    dlg_start(w, 3, title, message, "", id);
+}
+
 void gui_alert(struct gui_window *w, const char *title, const char *message)
 {
     dlg_start(w, 2, title, message, "", -1);
@@ -1304,6 +1311,12 @@ static void draw_dialog(struct gfx_surface *s)
         gfx_text(s, x + 20, y + 58, dlg.msg, gui_th->dim, GFX_TRANSPARENT, 1);
     }
     int by = y + h - 40;
+    if (dlg.kind == 3) {
+        gui_button(s, x + 20, by, 110, 28, "Don't Save", false);
+        gui_button(s, x + w - 190, by, 80, 28, "Cancel", false);
+        gui_button(s, x + w - 100, by, 80, 28, "Save", true);
+        return;
+    }
     if (dlg.kind != 2)
         gui_button(s, x + w - 190, by, 80, 28, "Cancel", false);
     gui_button(s, x + w - 100, by, 80, 28, "OK", true);
@@ -1315,6 +1328,11 @@ static bool dlg_click(int px, int py)
 
     dlg_rect(&x, &y, &w, &h);
     int by = y + h - 40;
+    if (dlg.kind == 3 && gui_hit(px, py, x + 20, by, 110, 28)) {
+        strlcpy(dlg.text, "discard", sizeof dlg.text);
+        dlg_finish(false);
+        return true;
+    }
     if (gui_hit(px, py, x + w - 100, by, 80, 28))
         dlg_finish(true);
     else if (dlg.kind != 2 && gui_hit(px, py, x + w - 190, by, 80, 28))
@@ -1329,7 +1347,7 @@ static void dlg_key(int k)
     if (k == '\n')
         dlg_finish(true);
     else if (k == 27)
-        dlg_finish(dlg.kind == 2);
+        dlg_finish(dlg.kind == 2);                      /* Esc: OK for an alert, otherwise Cancel */
     else if (dlg.kind == 0 && (k == '\b' || k == 127)) {
         if (len)
             dlg.text[len - 1] = '\0';

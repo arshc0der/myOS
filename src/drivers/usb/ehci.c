@@ -92,8 +92,11 @@ struct ehci {
     int nports;
 };
 
-static struct ehci E;
-static bool ehci_ok;
+/* up to three EHCI controllers (Intel 6/7-series boards have two); `ecur` is the one being set up */
+static struct ehci EA[3];
+static int nehci;
+static struct ehci *ecur = &EA[0];
+#define E (*ecur)
 
 static inline uint32_t rd(volatile uint8_t *p) { return *(volatile uint32_t *)p; }
 static inline void wr(volatile uint8_t *p, uint32_t v) { *(volatile uint32_t *)p = v; }
@@ -378,8 +381,9 @@ static bool wait_reg(volatile uint8_t *reg, uint32_t mask, uint32_t want, int ms
 
 bool ehci_probe(const struct pci_device *pd)
 {
-    if (ehci_ok)
+    if (nehci >= 3)
         return false;
+    ecur = &EA[nehci];
     memset(&E, 0, sizeof E);
     E.cap = usb_map_bar0(pd);
     if (!E.cap)
@@ -454,6 +458,6 @@ bool ehci_probe(const struct pci_device *pd)
     log_info("usb", "EHCI %04x:%04x ready: %d ports", pd->vendor, pd->device, E.nports);
     if (usb_hc_add(&ehci_ops, "EHCI", E.nports, &E) < 0)
         return false;
-    ehci_ok = true;
+    nehci++;
     return true;
 }
