@@ -19,6 +19,7 @@
  * clickable rectangles with hit(); the loop then maps a click or key to an action.
  */
 #include "guiapi.h"
+#include "uifont.h"
 #include "display.h"
 #include "sys.h"
 #include "input.h"
@@ -188,6 +189,20 @@ static bool edit_field(struct fld *f, int key)
 static void background(struct gfx_surface *s)
 {
     gfx_gradient_v(s, 0, 0, scw, sch, gui_th->bg_top, gui_th->bg_bot);
+}
+
+/* The lock screen shows your wallpaper, dimmed (like macOS). */
+static void lock_background(struct gfx_surface *s)
+{
+    const struct gfx_surface *wp = gui_wallpaper_surface();
+
+    if (wp && wp->w == s->w && wp->h == s->h) {
+        for (int y = 0; y < s->h; y++)
+            memcpy(s->px + y * s->stride, wp->px + y * wp->stride, (size_t)s->w * 4);
+        gfx_fill_rect_alpha(s, 0, 0, s->w, s->h, GFX_BLACK, 110);
+    } else {
+        gfx_gradient_v(s, 0, 0, s->w, s->h, gfx_blend(gui_th->bg_top, GFX_BLACK, 120), gfx_blend(gui_th->bg_bot, GFX_BLACK, 120));
+    }
 }
 
 static void card(struct gfx_surface *s, int cx, int cy, int cw, int ch)
@@ -1137,6 +1152,7 @@ static void init_state(void)
 }
 
 static void login_screen(void);
+static const char *lock_start_user;           /* lock screen: whose avatar starts selected */
 
 void gui_setup_assistant(void)
 {
@@ -1220,43 +1236,90 @@ static void login_screen(void)
     mx = scw / 2; my = sch / 2; mbtn = 0;
     apply_live();
     input_flush();
+    if (lock_start_user)
+        for (int i = 0; i < nusers; i++)
+            if (!strcmp(users_get(i)->name, lock_start_user))
+                sel = i;
     for (int t = 0;; t++) {
-        int cw = 360, n = nusers > 5 ? 5 : nusers, ch = 130 + n * 40 + 90;
-        int cx = (scw - cw) / 2, cy = (sch - ch) / 2 - 20;
+        int n = nusers > 5 ? 5 : nusers;
         char hid[28], row_t[64];
         uint32_t tm[6];
         struct input_event ev;
         int r;
 
         hit_reset();
-        background(s);
+        lock_background(s);
         sys_local_time(tm);
-        {
-            char clk[16], dt[16];
-            ksnprintf(clk, sizeof clk, "%02u:%02u", tm[3], tm[4]);
+        {   /* big clock and date, like the macOS lock screen */
+            char clk[16], dt[32];
+            if (sys_prefs.clock24)
+                ksnprintf(clk, sizeof clk, "%02u:%02u", tm[3], tm[4]);
+            else
+                ksnprintf(clk, sizeof clk, "%u:%02u", tm[3] % 12 ? tm[3] % 12 : 12, tm[4]);
             sys_date_string(dt, sizeof dt);
-            gfx_text(s, (scw - gfx_text_width(clk, 4)) / 2, 34, clk, gui_th->text, GFX_TRANSPARENT, 4);
-            gui_label_center(s, 0, 80, scw, dt, gui_th->dim);
+            int cw2 = ui_text_width(clk, 96, UI_THIN);
+            ui_text(s, (scw - cw2) / 2, sch / 12, clk, GFX_WHITE, 96, UI_THIN);
+            int dw2 = ui_text_width(dt, 20, UI_MEDIUM);
+            ui_text(s, (scw - dw2) / 2, sch / 12 + ui_text_height(96, UI_THIN) + 4, dt, GFX_RGB(235, 238, 245), 20, UI_MEDIUM);
         }
-        card(s, cx, cy, cw, ch);
-        gfx_draw_logo(s, cx + cw / 2 - 24, cy + 16, 48);
-        gui_label_center(s, cx, cy + 72, cw, sys_prefs.hostname, gui_th->dim);
-        for (int i = 0; i < n; i++) {
+        int ay = sch * 52 / 100;
+        for (int i = 0; i < n; i++) {                    /* avatars: the chosen one is large with a ring */
             const struct sys_user *u = users_get(i);
-            int y = cy + 100 + i * 40;
-            ksnprintf(row_t, sizeof row_t, "%s  (%s)%s", u->full[0] ? u->full : u->name, u->name, u->admin ? "  admin" : "");
-            row(s, cx + 24, y, cw - 48, row_t, i == sel, H_ROW + i);
+            int rad = i == sel ? 44 : 26;
+            int axc = scw / 2 + (i - (n - 1) / 2) * 104 - (n % 2 ? 0 : 52);
+            int ayc = ay - (i == sel ? 0 : -18);
+            if (i == sel)
+                gfx_fill_circle(s, axc, ayc, rad + 3, GFX_WHITE);
+            gfx_fill_circle(s, axc, ayc, rad, gfx_blend(gui_th->accent, GFX_BLACK, 40 + 20 * (i % 3)));
+            char ini[2] = { (char)((u->full[0] ? u->full[0] : u->name[0]) & ~0x20), 0 };
+            int iw = ui_text_width(ini, i == sel ? 40 : 24, UI_SEMIBOLD);
+            ui_text(s, axc - iw / 2, ayc - (i == sel ? 24 : 14), ini, GFX_WHITE, i == sel ? 40 : 24, UI_SEMIBOLD);
+            hit(axc - rad, ayc - rad, 2 * rad, 2 * rad, H_ROW + i);
         }
-        int py = cy + 100 + n * 40 + 8;
+        {
+            const struct sys_user *u = users_get(sel);
+            ksnprintf(row_t, sizeof row_t, "%s", u->full[0] ? u->full : u->name);
+            int nw = ui_text_width(row_t, 24, UI_SEMIBOLD);
+            ui_text(s, (scw - nw) / 2, ay + 56, row_t, GFX_WHITE, 24, UI_SEMIBOLD);
+        }
+        int py = ay + 96, fw = 240, fx = (scw - fw) / 2;
         if (sys_prefs.require_password) {
             mask(hid, pw);
-            gui_textfield(s, cx + 24, py, cw - 48, hid, true);
-            hit(cx + 24, py, cw - 48, 28, H_FLD);
+            gfx_fill_round_rect(s, fx, py, fw, 32, 16, GFX_RGB(255, 255, 255));
+            gfx_fill_round_rect(s, fx + 1, py + 1, fw - 2, 30, 15, GFX_RGB(70, 74, 86));
+            if (hid[0])
+                ui_text(s, fx + 16, py + 8, hid, GFX_WHITE, 14, UI_REGULAR);
+            else
+                ui_text(s, fx + 16, py + 8, sys_tr("Enter password"), GFX_RGB(200, 204, 214), 14, UI_REGULAR);
+            if ((t / 3) & 1)
+                gfx_fill_rect(s, fx + 16 + ui_text_width(hid, 14, UI_REGULAR), py + 8, 1, 16, GFX_WHITE);
+            gfx_fill_circle(s, fx + fw - 17, py + 16, 11, GFX_WHITE);          /* arrow button */
+            gfx_text(s, fx + fw - 21, py + 12, ">", GFX_BLACK, GFX_TRANSPARENT, 1);
+            hit(fx, py, fw, 32, H_NEXT);
+        } else {
+            gfx_fill_round_rect(s, fx, py, fw, 32, 16, GFX_RGB(255, 255, 255));
+            ui_text(s, fx + (fw - ui_text_width(sys_tr("Log In"), 14, UI_SEMIBOLD)) / 2, py + 8, sys_tr("Log In"), GFX_BLACK, 14, UI_SEMIBOLD);
+            hit(fx, py, fw, 32, H_NEXT);
         }
-        button(s, cx + 24, py + 38, cw - 48, 30, sys_tr("Log In"), H_NEXT, true);
-        gui_label_center(s, cx, py + 76, cw, err[0] ? err : sys_prefs.require_password ? sys_tr("Enter your password") : "Click Log In", err[0] ? RED : gui_th->dim);
-        button(s, scw / 2 - 110, sch - 60, 100, 30, sys_tr("Restart"), H_RESTART, false);
-        button(s, scw / 2 + 10, sch - 60, 100, 30, sys_tr("Shut Down"), H_SHUT, false);
+        {
+            const char *msg = err[0] ? err : sys_prefs.require_password ? sys_tr("Enter your password") : "";
+            int mw = ui_text_width(msg, 12, UI_REGULAR);
+            ui_text(s, (scw - mw) / 2, py + 44, msg, err[0] ? GFX_RGB(255, 140, 140) : GFX_RGB(215, 219, 228), 12, UI_REGULAR);
+        }
+        {   /* bottom: restart and shut down as plain labels with a round button each */
+            static const char *lab[2] = { "Restart", "Shut Down" };
+            static const int ids[2] = { H_RESTART, H_SHUT };
+            for (int i = 0; i < 2; i++) {
+                const char *l = sys_tr(lab[i]);
+                int lw = ui_text_width(l, 12, UI_MEDIUM), bx = scw / 2 + (i ? 30 : -30 - 44);
+                gfx_fill_circle(s, bx + 22, sch - 78, 20, GFX_RGB(70, 74, 86));
+                gfx_fill_circle(s, bx + 22, sch - 78, 7, GFX_WHITE);
+                gfx_fill_circle(s, bx + 22, sch - 78, 5, GFX_RGB(70, 74, 86));
+                gfx_fill_rect(s, bx + 21, sch - 90, 2, 10, GFX_WHITE);
+                ui_text(s, bx + 22 - lw / 2, sch - 50, l, GFX_RGB(235, 238, 245), 12, UI_MEDIUM);
+                hit(bx, sch - 100, 44, 70, ids[i]);
+            }
+        }
         draw_pointer(s);
         gfx_flush_all();
 
@@ -1300,6 +1363,13 @@ static void login_screen(void)
         }
         (void)power;
     }
+}
+
+void gui_lock_screen(void)
+{
+    lock_start_user = users_current() ? users_current()->name : NULL;
+    login_screen();
+    lock_start_user = NULL;
 }
 
 void gui_login(void)

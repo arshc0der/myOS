@@ -15,7 +15,8 @@
 #define KBC_CMD    0x64
 
 static bool present;
-static uint8_t packet[3];
+static uint8_t packet[4];
+static int psize = 3;                           /* 4 when the mouse has a scroll wheel (IntelliMouse) */
 static int idx;
 static uint8_t last_buttons;
 
@@ -56,7 +57,7 @@ static void mouse_irq(struct regs *r)
     if (idx == 0 && !(b & 0x08))                /* out of sync: bit 3 is always 1 */
         return;
     packet[idx++] = b;
-    if (idx < 3)
+    if (idx < psize)
         return;
     idx = 0;
     if (packet[0] & 0xC0)                       /* overflow */
@@ -69,6 +70,7 @@ static void mouse_irq(struct regs *r)
         .buttons = packet[0] & 7,
         .dx = dx,
         .dy = -dy,                              /* screen y grows downwards */
+        .wheel = psize == 4 ? (int8_t)(packet[3] & 0x08 ? packet[3] | 0xF0 : packet[3] & 0x0F) : 0,
     };
     last_buttons = ev.buttons;
     input_push(&ev);
@@ -99,6 +101,13 @@ bool mouse_init(void)
     (void)mouse_cmd(0xF6);                      /* defaults */
     if (!mouse_cmd(0xF4) && !mouse_cmd(0xF4))   /* start streaming */
         return false;
+    /* Scroll wheel: the "magic" sample-rate sequence 200, 100, 80 switches an IntelliMouse to device id 3 */
+    if (mouse_cmd(0xF3) && mouse_cmd(0xC8) && mouse_cmd(0xF3) && mouse_cmd(0x64) && mouse_cmd(0xF3) && mouse_cmd(0x50) &&
+        mouse_cmd(0xF2) && wait_read() && inb(KBC_DATA) == 3)
+        psize = 4;
+    (void)mouse_cmd(0xF3);
+    (void)mouse_cmd(100);
+    (void)mouse_cmd(0xF4);
     idx = 0;
     irq_register(12, mouse_irq);
     present = true;

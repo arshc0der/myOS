@@ -68,6 +68,10 @@ struct sys_prefs {
     int  accent;                                /* accent colour index                  */
     bool dnd, airplane, wifi_on, bt_on;         /* Control Center */
     int  brightness;                            /* 10..100 (software dimming of the frame buffer) */
+    int  wall_style;                            /* 0 = theme gradient, 1..N = colour preset (guiapi wallpaper presets) */
+    int  wall_mode;                             /* picture fit: 0 fill, 1 fit, 2 stretch, 3 centre */
+    int  dock_hide;                             /* 0 always shown, 1 hidden while a window is maximized, 2 auto-hide */
+    char wall[96];                              /* wallpaper picture path ("" = none) */
     int  kbd_layout;                            /* 0 US, 1 UK, 2 German, 3 French, 4 Hindi (saved; key translation is US only) */
 };
 extern struct sys_prefs sys_prefs;

@@ -413,13 +413,13 @@ void sys_country_apply(int i)
     X(acc_contrast, acc_contrast) X(acc_motion, acc_reduce_motion) X(acc_kbd, acc_kbd_pointer) X(acc_reader, acc_reader) \
     X(acc_magnify, acc_magnify) X(priv_diag, priv_diag) X(priv_loc, priv_location) X(priv_ana, priv_analytics) \
     X(reqpw, require_password) X(autoupd, auto_updates) X(chkupd, check_updates) X(voice, voice) X(openterm, open_terminal) \
-    X(volume, volume) X(muted, muted) X(dark, dark) X(accent, accent) X(kbdlayout, kbd_layout) X(dnd, dnd) X(airplane, airplane) X(wifion, wifi_on) X(bton, bt_on) X(bright, brightness)
+    X(volume, volume) X(muted, muted) X(dark, dark) X(accent, accent) X(kbdlayout, kbd_layout) X(dnd, dnd) X(airplane, airplane) X(wifion, wifi_on) X(bton, bt_on) X(bright, brightness) X(wallstyle, wall_style) X(wallmode, wall_mode) X(dockhide, dock_hide)
 
 void sys_prefs_save(void)
 {
-    char b[1000];
-    int n = ksnprintf(b, sizeof b, "tz=%d\ncity=%s\nhz=%d\nclock24=%d\nhost=%s\n", sys_prefs.tz_minutes, sys_prefs.city,
-                      sys_prefs.refresh_hz, sys_prefs.clock24, sys_prefs.hostname);
+    char b[1400];
+    int n = ksnprintf(b, sizeof b, "tz=%d\ncity=%s\nhz=%d\nclock24=%d\nhost=%s\nwall=%s\n", sys_prefs.tz_minutes, sys_prefs.city,
+                      sys_prefs.refresh_hz, sys_prefs.clock24, sys_prefs.hostname, sys_prefs.wall);
 #define X(key, field) n += ksnprintf(b + n, sizeof b - (size_t)n, #key "=%d\n", (int)sys_prefs.field);
     FLAGS(X)
 #undef X
@@ -429,7 +429,7 @@ void sys_prefs_save(void)
 
 void sys_prefs_load(void)
 {
-    char b[1100];
+    char b[1500];
     ssize_t n = vfs_read_file("/Users/.sysconf", b, sizeof b - 1);
     if (n <= 0)
         return;
@@ -446,6 +446,7 @@ void sys_prefs_load(void)
             else if (!strcmp(k, "hz")) sys_prefs.refresh_hz = katoi(v);
             else if (!strcmp(k, "clock24")) sys_prefs.clock24 = katoi(v) != 0;
             else if (!strcmp(k, "host")) strlcpy(sys_prefs.hostname, v, sizeof sys_prefs.hostname);
+            else if (!strcmp(k, "wall")) strlcpy(sys_prefs.wall, v, sizeof sys_prefs.wall);
 #define X(key, field) else if (!strcmp(k, #key)) sys_prefs.field = (typeof(sys_prefs.field))katoi(v);
             FLAGS(X)
 #undef X

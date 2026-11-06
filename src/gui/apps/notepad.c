@@ -169,6 +169,20 @@ static void notepad_key(struct gui_window *w, int key, int mods)
     gui_redraw();
 }
 
+static void notepad_scroll(struct gui_window *w, int lines)
+{
+    struct note *n = w->priv;
+    int total = 1;
+
+    if (!n)
+        return;
+    for (int i = 0; i < n->len; i++)
+        if (n->text[i] == '\n')
+            total++;
+    n->top_line = MAX(0, MIN(total - 1, n->top_line + lines));
+    gui_redraw();
+}
+
 static void notepad_draw(struct gui_window *w)
 {
     struct note *n = w->priv;
@@ -212,7 +226,7 @@ static void notepad_icon(struct gfx_surface *s, int x, int y, int sz, uint32_t g
 
 static const struct gui_app notepad_app = {
     .name = "Notepad", .title = "Notepad - new file", .cw = 560, .ch = 360, .dock = 30,
-    .open = notepad_open, .close = notepad_close, .draw = notepad_draw, .key = notepad_key,
+    .open = notepad_open, .close = notepad_close, .draw = notepad_draw, .key = notepad_key, .scroll = notepad_scroll,
     .icon = notepad_icon,
 };
 GUI_APP(notepad_app);

@@ -100,6 +100,7 @@ struct gui_app {
     void (*key)(struct gui_window *w, int key, int mods);     /* keyboard (focused)    */
     void (*click)(struct gui_window *w, int x, int y, int buttons);  /* x,y inside client */
     void (*tick)(struct gui_window *w);                       /* about 10 times a second */
+    void (*scroll)(struct gui_window *w, int lines);          /* mouse wheel / touchpad edge scroll: > 0 = down */
     /* Menus in the menu bar (File, Edit, ...) and the callback that receives the chosen id. */
     const struct gui_menu *menus;
     int nmenus;
@@ -215,11 +216,22 @@ bool gui_scroll_click(struct gui_scroll *sv, const struct gfx_surface *content, 
 
 void  gui_setup_assistant(void);                /* first-boot Setup Assistant (setup.c) */
 void  gui_apply_sys_prefs(void);                /* apply saved appearance / accessibility prefs */
+void  gui_lock_screen(void);                   /* lock screen for the current user (setup.c) */
+const struct gfx_surface *gui_wallpaper_surface(void);   /* the current wallpaper picture, screen sized */
 void  gui_login(void);                          /* first-boot setup / login screen (login.c) */
 
 /* ---- applications that other apps call ---- */
 void notepad_open_file(const char *path);       /* src/gui/apps/notepad.c */
 void photos_open_file(const char *path);        /* src/gui/apps/photos.c  */
+#define GUI_WALL_PRESETS 18
+int   gui_wallpaper_preset_count(void);
+const char *gui_wallpaper_preset_name(int i);
+uint32_t gui_wallpaper_preset_color(int i, bool bottom);
+int   gui_wallpaper_style(void);                /* 0 default, 1..GUI_WALL_PRESETS colour preset */
+int   gui_wallpaper_mode(void);                 /* 0 fill, 1 fit, 2 stretch, 3 centre */
+const char *gui_wallpaper_path(void);           /* "" when no picture */
+void  gui_set_wallpaper_style(int style);       /* 0 = default, 1.. = preset (clears the picture) */
+void  gui_set_wallpaper_mode(int mode);
 bool gui_set_wallpaper(const char *path);       /* picture as desktop background ("" = default) */
 
 #endif

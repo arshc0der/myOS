@@ -231,6 +231,17 @@ static void ensure_visible(const struct gui_window *w, struct files *f)
         f->top = row - r + 1;
 }
 
+static void files_scroll(struct gui_window *w, int lines)
+{
+    struct files *f = w->priv;
+    int c = cols(w, f), r = visible_rows(w, f), rows = (f->nent + c - 1) / c;
+
+    if (!f)
+        return;
+    f->top = MAX(0, MIN(MAX(0, rows - r), f->top + lines));
+    gui_redraw();
+}
+
 static int item_at(const struct gui_window *w, const struct files *f, int x, int y)
 {
     int c = cols(w, f);
@@ -634,7 +645,7 @@ static void files_icon(struct gfx_surface *s, int x, int y, int sz, uint32_t g, 
 static const struct gui_app files_app = {
     .name = "Files", .title = "Files", .cw = 700, .ch = 440, .single = true, .dock = 20,
     .open = files_open, .close = files_close, .draw = files_draw, .key = files_key,
-    .click = files_click, .icon = files_icon,
+    .click = files_click, .icon = files_icon, .scroll = files_scroll,
     .menus = menus, .nmenus = (int)ARRAY_SIZE(menus), .command = files_command, .dialog = files_dialog,
 };
 GUI_APP(files_app);

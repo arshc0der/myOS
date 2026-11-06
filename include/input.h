@@ -42,6 +42,7 @@ struct input_event {
     uint8_t  pad;           /* mouse: bit 0 = absolute position (dx,dy are 0..32767) */
     int32_t  key;           /* ASCII or KEY_* (keys)               */
     int32_t  dx, dy;        /* movement since the last event (mouse) */
+    int32_t  wheel;         /* scroll wheel / touchpad edge scroll: > 0 = scroll down, < 0 = up (mouse) */
 };
 
 void input_init(void);

@@ -289,6 +289,9 @@ void hid_setup(struct hid_dev *h, int kind, const uint8_t *desc, int len)
  * Touchpad: the pad reports where the first finger is. We turn finger motion
  * into relative pointer motion and a quick touch without motion into a click.
  */
+static bool tp_edge;
+static int32_t tp_acc;
+
 static void touchpad_report(struct hid_dev *h, const uint8_t *r, int len, uint32_t base, uint8_t buttons)
 {
     bool tip = get_bits(r, len, base + h->to, 1) != 0;
@@ -311,6 +314,8 @@ static void touchpad_report(struct hid_dev *h, const uint8_t *r, int len, uint32
             h->tcid = cid;
             h->px = x;
             h->py = y;
+            tp_edge = (int64_t)(x - h->xmin) * 100 > (int64_t)range * 93;     /* touched the right 7 percent */
+            tp_acc = 0;
             h->moved = 0;
             h->t0 = timer_ticks();
         } else {
@@ -319,9 +324,16 @@ static void touchpad_report(struct hid_dev *h, const uint8_t *r, int len, uint32
             h->px = x;
             h->py = y;
             h->moved += (dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy);
-            ev.dx = dx;
-            ev.dy = dy;
-            send = dx || dy;
+            if (tp_edge) {                      /* finger on the right edge: slide up and down to scroll */
+                tp_acc += dy;
+                ev.wheel = tp_acc / 24;
+                tp_acc -= ev.wheel * 24;
+                send = ev.wheel != 0;
+            } else {
+                ev.dx = dx;
+                ev.dy = dy;
+                send = dx || dy;
+            }
         }
     } else if (h->tdown) {                      /* finger lifted */
         h->tdown = false;
@@ -368,7 +380,11 @@ static void pointer_report(struct hid_dev *h, const uint8_t *r, int len)
     if (h->kind == HID_MOUSE) {
         ev.dx = x;
         ev.dy = y;
-        if (!x && !y && buttons == h->lbuttons)
+        if (h->ws) {                            /* scroll wheel: forward = up */
+            uint32_t wr = get_bits(r, len, base + h->wo, h->ws);
+            ev.wheel = -sext(wr, h->ws);
+        }
+        if (!x && !y && !ev.wheel && buttons == h->lbuttons)
             return;
     } else {
         int32_t rx = h->xmax - h->xmin, ry = h->ymax - h->ymin;

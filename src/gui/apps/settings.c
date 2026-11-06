@@ -19,15 +19,16 @@
 #include "timer.h"
 #include "multiboot.h"
 #include "kernel.h"
+#include "image.h"
 
 #define SIDE_W 140
 
-struct settings { int page; char pending[SYS_NAME_MAX]; int nap, sel_ap; struct wifi_ap ap[6]; int nbtd; struct bt_device btd[6]; };
+struct settings { int npic; char pic[4][36]; int page; char pending[SYS_NAME_MAX]; int nap, sel_ap; struct wifi_ap ap[6]; int nbtd; struct bt_device btd[6]; };
 
-static const char *pages[] = { "Appearance", "Dock", "Pointer", "Display", "Date & Time", "Network", "Bluetooth", "Users", "Storage", "Devices",
+static const char *pages[] = { "Appearance", "Wallpaper", "Dock", "Pointer", "Display", "Date & Time", "Network", "Bluetooth", "Users", "Storage", "Devices",
                                "Language", "Accessibility", "Keyboard", "Sound", "Privacy", "General", "Hardware" };
-enum { P_APP, P_DOCK, P_PTR, P_DISP, P_TIME, P_NET, P_BT, P_USERS, P_STORE, P_DEV, P_LANG, P_ACC, P_KBD, P_SND, P_PRIV, P_GEN, P_HW, NPAGES };
-enum { D_ADDUSER = 1, D_ADDPW, D_CHPW, D_DELUSER, D_WIFIPW, D_HOST, D_RESET_SET, D_RESET_ALL };
+enum { P_APP, P_WALL, P_DOCK, P_PTR, P_DISP, P_TIME, P_NET, P_BT, P_USERS, P_STORE, P_DEV, P_LANG, P_ACC, P_KBD, P_SND, P_PRIV, P_GEN, P_HW, NPAGES };
+enum { D_WALLPATH = 20, D_ADDUSER = 1, D_ADDPW, D_CHPW, D_DELUSER, D_WIFIPW, D_HOST, D_RESET_SET, D_RESET_ALL };
 
 static char upd_msg[160];
 static volatile int ping_ms = -3;                 /* -3 never run, -2 running, -1 no answer, >=0 round trip */
@@ -43,8 +44,22 @@ static void ping_task(void *arg)
 
 static struct settings st_store;
 
+/* Pictures in the user's Pictures folder, for the Wallpaper page */
+static void wall_scan(struct settings *st)
+{
+    char dir[VFS_PATH_MAX];
+    struct dirent e;
+
+    st->npic = 0;
+    ksnprintf(dir, sizeof dir, "%s/Pictures", users_current() ? users_home() : "");
+    for (uint32_t i = 0; st->npic < 4 && vfs_readdir(dir[0] ? dir : "/", i, &e) == 0; i++)
+        if (e.type != 2 && image_is_picture(e.name) && strlen(e.name) < sizeof st->pic[0])
+            strlcpy(st->pic[st->npic++], e.name, sizeof st->pic[0]);
+}
+
 static void settings_open(struct gui_window *w)
 {
+    wall_scan(&st_store);
     st_store.page = 0;
     if (sys_prefs.check_updates && !upd_msg[0])
         sys_update_check(upd_msg, sizeof upd_msg);
@@ -178,21 +193,66 @@ static void settings_draw(struct gui_window *w)
         note(s, 360, "Tip: double-click a title bar (or the green button) to maximize.");
         break;
     }
+    case P_WALL: {
+        static const char *fit[] = { "Fill", "Fit", "Stretch", "Centre" };
+        const struct gfx_surface *wp = gui_wallpaper_surface();
+        int tw = 176, th = 99, sc = gui_wallpaper_style(), mode = gui_wallpaper_mode();
+        gfx_fill_round_rect(s, X0 - 2, 62, tw + 4, th + 4, 8, gui_th->line);
+        if (wp)
+            for (int y = 0; y < th; y++)
+                for (int x = 0; x < tw; x++)
+                    s->px[(64 + y) * s->stride + X0 + x] = wp->px[(y * wp->h / th) * wp->stride + x * wp->w / tw];
+        const char *p = gui_wallpaper_path();
+        if (p[0]) {
+            const char *base = strrchr(p, '/');
+            gfx_text(s, X0 + tw + 20, 68, "Picture", gui_th->dim, GFX_TRANSPARENT, 1);
+            gfx_text(s, X0 + tw + 20, 84, base ? base + 1 : p, gui_th->text, GFX_TRANSPARENT, 1);
+        } else {
+            gfx_text(s, X0 + tw + 20, 68, sc ? "Colour" : "Default", gui_th->dim, GFX_TRANSPARENT, 1);
+            gfx_text(s, X0 + tw + 20, 84, sc ? gui_wallpaper_preset_name(sc - 1) : "MyOS", gui_th->text, GFX_TRANSPARENT, 1);
+        }
+        gui_button(s, X0 + tw + 20, 108, 150, 28, "Choose picture...", false);
+        gui_button(s, X0 + tw + 20, 144, 150, 28, "Default", !p[0] && !sc);
+        heading(s, 182, "Colours and gradients");
+        for (int i = 0; i < gui_wallpaper_preset_count(); i++) {
+            int x = X0 + (i % 6) * 66, y = 198 + (i / 6) * 42;
+            if (!p[0] && sc == i + 1)
+                gfx_fill_round_rect(s, x - 3, y - 3, 62, 40, 8, gui_th->text);
+            gfx_fill_round_rect(s, x - 1, y - 1, 58, 36, 7, gui_th->win);
+            gfx_gradient_v(s, x + 1, y + 1, 54, 32, gui_wallpaper_preset_color(i, false), gui_wallpaper_preset_color(i, true));
+        }
+        heading(s, 328, "Picture fit");
+        gui_segment(s, X0, 344, SEGW, fit, 4, mode);
+        heading(s, 382, "Pictures");
+        if (!st->npic)
+            note(s, 402, "Put images in your Pictures folder (png, jpg, bmp ...).");
+        for (int i = 0; i < st->npic; i++) {
+            ksnprintf(line, sizeof line, "%s/Pictures/%s", users_current() ? users_home() : "", st->pic[i]);
+            gui_sidebar_row(s, X0, 398 + i * 28, SEGW, st->pic[i], !strcmp(p, line));
+        }
+        break;
+    }
     case P_DOCK: {
         const char *a[] = { "Colorful", "Plain" }, *b[] = { "Small", "Medium", "Large" };
         heading(s, 64, "Dock icons");
         gui_segment(s, X0, 80, SEGW, a, 2, gui_prefs.dock_colorful ? 0 : 1);
         heading(s, 118, "Icon size");
         gui_segment(s, X0, 134, SEGW, b, 3, gui_prefs.dock_size <= 44 ? 0 : gui_prefs.dock_size >= 64 ? 2 : 1);
-        heading(s, 182, "Your own icon pictures");
-        note(s, 200, "Put a picture named like the app in");
+        {
+            static const char *hide[] = { "Always show", "Hide when maximized", "Auto-hide" };
+            heading(s, 182, "Hide the dock");
+            gui_segment(s, X0, 198, SEGW, hide, 3, sys_prefs.dock_hide);
+            note(s, 232, "Move the pointer to the bottom edge to bring a hidden dock back.");
+        }
+        heading(s, 264, "Your own icon pictures");
+        note(s, 282, "Put a picture named like the app in");
         if (users_current()) {
             ksnprintf(line, sizeof line, "%s/Library/Icons/", users_home());
-            gfx_text(s, X0, 216, line, gui_th->text, GFX_TRANSPARENT, 1);
+            gfx_text(s, X0, 298, line, gui_th->text, GFX_TRANSPARENT, 1);
         }
-        note(s, 234, "for example Files.png, Settings.jpg, Photos.bmp.");
-        note(s, 248, "Shared icons can go in /System/Icons/.");
-        gui_button(s, X0, 276, 150, 28, "Reload icons", false);
+        note(s, 316, "for example Files.png, Settings.jpg, Photos.bmp.");
+        note(s, 330, "Shared icons can go in /System/Icons/.");
+        gui_button(s, X0, 358, 150, 28, "Reload icons", false);
         break;
     }
     case P_PTR: {
@@ -525,6 +585,8 @@ static void settings_click(struct gui_window *w, int x, int y, int buttons)
         i = (y - 14) / 28;
         if (y >= 14 && i >= 0 && i < NPAGES)
             st->page = i;
+        if (st->page == P_WALL)
+            wall_scan(st);
         gui_redraw();
         return;
     }
@@ -548,12 +610,39 @@ static void settings_click(struct gui_window *w, int x, int y, int buttons)
             gui_prefs.anim = i == 0;
         }
         break;
+    case P_WALL:
+        if (gui_hit(x, y, X0 + 196, 108, 150, 28)) {
+            char dir[VFS_PATH_MAX];
+            ksnprintf(dir, sizeof dir, "%s/Pictures/", users_current() ? users_home() : "");
+            gui_prompt(w, "Picture path", dir, D_WALLPATH);
+        } else if (gui_hit(x, y, X0 + 196, 144, 150, 28)) {
+            gui_set_wallpaper_style(0);
+        } else if (y >= 198 && y < 198 + 3 * 42 && x >= X0 && x < X0 + 6 * 66) {
+            int col = (x - X0) / 66, row = (y - 198) / 42;
+            if (col < 6 && row < 3 && (x - X0) % 66 < 58 && (y - 198) % 42 < 36)
+                gui_set_wallpaper_style(row * 6 + col + 1);
+        } else if ((i = seg_hit(x, y, 344, 4)) >= 0) {
+            gui_set_wallpaper_mode(i);
+        } else if (y >= 398 && y < 398 + 4 * 28 && x >= X0 && x < X0 + SEGW) {
+            i = (y - 398) / 28;
+            if (i < st->npic) {
+                char path[VFS_PATH_MAX];
+                ksnprintf(path, sizeof path, "%s/Pictures/%s", users_current() ? users_home() : "", st->pic[i]);
+                if (!gui_set_wallpaper(path))
+                    gui_alert(w, "Wallpaper", "This picture could not be opened.");
+            }
+        }
+        break;
     case P_DOCK:
         if ((i = seg_hit(x, y, 80, 2)) >= 0)
             gui_prefs.dock_colorful = i == 0;
         else if ((i = seg_hit(x, y, 134, 3)) >= 0)
             gui_prefs.dock_size = i == 0 ? 44 : i == 1 ? 52 : 64;
-        else if (gui_hit(x, y, X0, 276, 150, 28))
+        else if ((i = seg_hit(x, y, 198, 3)) >= 0) {
+            sys_prefs.dock_hide = i;
+            sys_prefs_save();
+            gui_redraw();
+        } else if (gui_hit(x, y, X0, 358, 150, 28))
             gui_reload_icons();
         break;
     case P_PTR:
@@ -683,6 +772,11 @@ static void settings_dialog(struct gui_window *w, int id, bool ok, const char *t
     if (!ok)
         return;
     switch (id) {
+    case D_WALLPATH:
+        if (!gui_set_wallpaper(text))
+            gui_alert(w, "Wallpaper", "This picture could not be opened. Use a png, jpg, bmp or gif.");
+        wall_scan(st);
+        break;
     case D_HOST:
         if (sys_hostname_ok(text)) { strlcpy(sys_prefs.hostname, text, sizeof sys_prefs.hostname); sys_prefs_save(); }
         else gui_alert(w, "Computer name", "Use letters, digits and - only (23 characters at most).");

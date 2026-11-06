@@ -190,10 +190,16 @@ static void term_icon(struct gfx_surface *s, int x, int y, int sz, uint32_t g, u
 #undef P
 }
 
+static void term_scroll(struct gui_window *w, int lines)
+{
+    (void)w;
+    gt_scroll(-lines);                              /* wheel down = towards the newest output */
+}
+
 static const struct gui_app terminal_app = {
     .name = "Terminal", .title = "Terminal", .cw = 656, .ch = 400, .size = term_size,
     .single = true, .dock = 10, .dark_tile = true,
-    .open = term_open, .close = term_close, .draw = term_draw, .key = term_key,
+    .open = term_open, .close = term_close, .draw = term_draw, .key = term_key, .scroll = term_scroll,
     .tick = term_tick, .icon = term_icon,
 };
 GUI_APP(terminal_app);

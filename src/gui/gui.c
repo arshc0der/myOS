@@ -260,28 +260,64 @@ static void reap_windows(void)
 
 static char wall_path[96];
 static bool wallpaper_ok;
+static int wall_style;                                  /* colour preset when no picture is chosen */
+static int wall_mode;                                   /* 0 fill (crop), 1 fit, 2 stretch, 3 centre */
 
-/* Scale a picture so it covers the whole screen (centre crop). */
+#define RGB(r, g, b) GFX_RGB(r, g, b)
+static const struct { const char *name; uint32_t top, bot; } wp_presets[GUI_WALL_PRESETS] = {
+    { "Aurora", RGB(32, 201, 151), RGB(95, 61, 196) },    { "Sunset", RGB(255, 153, 102), RGB(214, 51, 132) },
+    { "Ocean", RGB(77, 171, 247), RGB(11, 60, 130) },     { "Forest", RGB(81, 207, 102), RGB(18, 64, 43) },
+    { "Midnight", RGB(41, 50, 90), RGB(8, 10, 24) },      { "Graphite", RGB(134, 142, 150), RGB(33, 37, 41) },
+    { "Rose", RGB(250, 162, 193), RGB(166, 30, 77) },     { "Lavender", RGB(208, 191, 255), RGB(103, 65, 217) },
+    { "Sand", RGB(255, 236, 179), RGB(201, 150, 70) },    { "Mint", RGB(195, 250, 232), RGB(18, 184, 134) },
+    { "Fire", RGB(255, 212, 59), RGB(224, 49, 49) },      { "Sky", RGB(165, 216, 255), RGB(34, 139, 230) },
+    { "Blue", RGB(28, 100, 242), RGB(28, 100, 242) },     { "Green", RGB(47, 158, 68), RGB(47, 158, 68) },
+    { "Purple", RGB(112, 72, 232), RGB(112, 72, 232) },   { "Orange", RGB(240, 140, 0), RGB(240, 140, 0) },
+    { "Black", RGB(8, 8, 10), RGB(8, 8, 10) },            { "White", RGB(240, 242, 246), RGB(240, 242, 246) },
+};
+#undef RGB
+
+int gui_wallpaper_preset_count(void) { return GUI_WALL_PRESETS; }
+const char *gui_wallpaper_preset_name(int i) { return i >= 0 && i < GUI_WALL_PRESETS ? wp_presets[i].name : ""; }
+uint32_t gui_wallpaper_preset_color(int i, bool bottom)
+{
+    if (i < 0 || i >= GUI_WALL_PRESETS)
+        return 0;
+    return bottom ? wp_presets[i].bot : wp_presets[i].top;
+}
+
+/* Place a picture: fill (centre crop), fit (whole picture, bars), stretch or centre (actual size). */
 static bool wallpaper_from_picture(void)
 {
     const char *err;
     struct gfx_surface *raw = image_load(wall_path, gui_th->bg_top, &err);
     if (!raw)
         return false;
+    uint32_t bar = gfx_blend(gui_th->bg_top, GFX_BLACK, 200);
     for (int y = 0; y < sh; y++) {
-        int scale_h = raw->w * sh >= raw->h * sw;            /* picture wider than the screen? */
         for (int x = 0; x < sw; x++) {
             int sx, sy;
-            if (scale_h) {
-                sy = y * raw->h / sh;
-                sx = (raw->w - sw * raw->h / sh) / 2 + x * raw->h / sh;
-            } else {
+            bool inside = true;
+            if (wall_mode == 2) {                                    /* stretch */
                 sx = x * raw->w / sw;
-                sy = (raw->h - sh * raw->w / sw) / 2 + y * raw->w / sw;
+                sy = y * raw->h / sh;
+            } else if (wall_mode == 3) {                             /* centre, no scaling */
+                sx = x - (sw - raw->w) / 2;
+                sy = y - (sh - raw->h) / 2;
+                inside = sx >= 0 && sy >= 0 && sx < raw->w && sy < raw->h;
+            } else {
+                bool wider = (int64_t)raw->w * sh >= (int64_t)raw->h * sw;     /* picture wider than the screen? */
+                bool by_h = wall_mode == 1 ? !wider : wider;                  /* which side decides the scale */
+                if (by_h) {                                          /* scale so the heights match */
+                    sx = (int)((int64_t)(x - (sw - (int64_t)raw->w * sh / raw->h) / 2) * raw->h / sh);
+                    sy = y * raw->h / sh;
+                } else {                                             /* scale so the widths match */
+                    sx = x * raw->w / sw;
+                    sy = (int)((int64_t)(y - (sh - (int64_t)raw->h * sw / raw->w) / 2) * raw->w / sw);
+                }
+                inside = sx >= 0 && sy >= 0 && sx < raw->w && sy < raw->h;
             }
-            sx = MAX(0, MIN(raw->w - 1, sx));
-            sy = MAX(0, MIN(raw->h - 1, sy));
-            wallpaper->px[y * wallpaper->stride + x] = raw->px[sy * raw->stride + sx];
+            wallpaper->px[y * wallpaper->stride + x] = inside ? raw->px[sy * raw->stride + sx] : bar;
         }
     }
     gfx_surface_free(raw);
@@ -299,26 +335,109 @@ static void build_wallpaper(void)
         wallpaper_ok = true;
         return;
     }
+    if (wall_style > 0 && wall_style <= GUI_WALL_PRESETS) {
+        uint32_t t = wp_presets[wall_style - 1].top, b = wp_presets[wall_style - 1].bot;
+        gfx_gradient_v(wallpaper, 0, 0, sw, sh, t, b);
+        if (t != b) {
+            gfx_fill_circle(wallpaper, sw * 78 / 100, sh * 30 / 100, sh / 3, gfx_blend(t, b, 90));
+            gfx_fill_circle(wallpaper, sw * 22 / 100, sh * 80 / 100, sh / 4, gfx_blend(t, b, 170));
+        }
+        return;
+    }
     gfx_gradient_v(wallpaper, 0, 0, sw, sh, gui_th->bg_top, gui_th->bg_bot);
     uint32_t c1 = gfx_blend(gui_th->bg_top, gui_th->bg_bot, 80), c2 = gfx_blend(gui_th->bg_top, gui_th->bg_bot, 150);
     gfx_fill_circle(wallpaper, sw * 78 / 100, sh * 30 / 100, sh / 3, c1);
     gfx_fill_circle(wallpaper, sw * 22 / 100, sh * 80 / 100, sh / 4, c2);
 }
 
+const struct gfx_surface *gui_wallpaper_surface(void) { return wallpaper; }
+int gui_wallpaper_style(void) { return wall_style; }
+int gui_wallpaper_mode(void) { return wall_mode; }
+const char *gui_wallpaper_path(void) { return wall_path; }
+
+static void wall_save(void)
+{
+    sys_prefs.wall_style = wall_style;
+    sys_prefs.wall_mode = wall_mode;
+    strlcpy(sys_prefs.wall, wall_path, sizeof sys_prefs.wall);
+    sys_prefs_save();
+}
+
+/* Cross-fade from the old picture to the new one */
+static struct gfx_surface *wall_old;
+static uint32_t wall_old_t0;
+
+static void wall_changed(void)
+{
+    struct gfx_surface *old = wallpaper;
+
+    wallpaper = NULL;
+    build_wallpaper();
+    gfx_surface_free(wall_old);
+    wall_old = NULL;
+    if (gui_prefs.anim && old && wallpaper && old->w == wallpaper->w && old->h == wallpaper->h) {
+        wall_old = old;
+        wall_old_t0 = anim_now();
+        animating = true;
+    } else
+        gfx_surface_free(old);
+    wall_save();
+    gui_redraw();
+}
+
 bool gui_set_wallpaper(const char *path)
 {
     char old[sizeof wall_path];
+    int os = wall_style;
 
     strlcpy(old, wall_path, sizeof old);
     strlcpy(wall_path, path, sizeof wall_path);
+    wall_style = 0;
+    struct gfx_surface *keep = wallpaper;
+    wallpaper = NULL;
     build_wallpaper();
     if (path[0] && !wallpaper_ok) {
         strlcpy(wall_path, old, sizeof wall_path);
-        build_wallpaper();
+        wall_style = os;
+        gfx_surface_free(wallpaper);
+        wallpaper = keep;
         return false;
     }
-    gui_redraw();
+    wallpaper = keep;
+    wall_changed();
     return true;
+}
+
+void gui_set_wallpaper_style(int style)
+{
+    wall_path[0] = 0;
+    wall_style = style < 0 || style > GUI_WALL_PRESETS ? 0 : style;
+    wall_changed();
+}
+
+void gui_set_wallpaper_mode(int mode)
+{
+    wall_mode = mode < 0 || mode > 3 ? 0 : mode;
+    if (wall_path[0])
+        wall_changed();
+    else
+        wall_save();
+}
+
+/* After the saved settings are known (login): take them over. */
+static void wall_apply_saved(void)
+{
+    if (!strcmp(wall_path, sys_prefs.wall) && wall_style == sys_prefs.wall_style && wall_mode == sys_prefs.wall_mode)
+        return;
+    strlcpy(wall_path, sys_prefs.wall, sizeof wall_path);
+    wall_style = sys_prefs.wall_style;
+    wall_mode = sys_prefs.wall_mode;
+    build_wallpaper();
+    if (wall_path[0] && !wallpaper_ok) {                   /* the picture is gone: go back to the default */
+        wall_path[0] = 0;
+        build_wallpaper();
+    }
+    gui_redraw();
 }
 
 void gui_refresh_theme(void)
@@ -381,12 +500,56 @@ static void build_dock(void)
             dock_idx[ndock++] = i;
 }
 
+static int dock_off;                                    /* pixels the dock is pushed below the screen edge (auto-hide) */
+
 static void dock_rect(int *x, int *y, int *w, int *h)
 {
     *w = ndock * DOCK_ICON + (ndock - 1) * DOCK_GAP + 32;
     *h = DOCK_ICON + 14;
     *x = (sw - *w) / 2;
-    *y = sh - *h - 8;
+    *y = sh - *h - 8 + dock_off;
+}
+
+/* Where the dock wants to be: 0 = shown, otherwise how far below the screen. */
+static int dock_target(void)
+{
+    int mode = sys_prefs.dock_hide, hh = DOCK_ICON + 14 + 14;
+
+    if (mode == 0 || !ndock)
+        return 0;
+    bool hide = mode == 2;
+    for (int i = 0; i < nz && !hide; i++) {
+        const struct gui_window *w = &wins[zorder[i]];
+        if (w->used && !w->minimized && (w->maximized || w->fullscreen))
+            hide = true;
+    }
+    if (!hide)
+        return 0;
+    int dw = ndock * DOCK_ICON + (ndock - 1) * DOCK_GAP + 32, dx = (sw - dw) / 2;
+    if (my >= sh - 3)                                   /* pointer pushed against the bottom edge */
+        return 0;
+    if (dock_off < hh / 2 && my >= sh - DOCK_ICON - 36 && mx >= dx - 30 && mx < dx + dw + 30)
+        return 0;                                       /* already showing and the pointer is still on it */
+    return hh;
+}
+
+static void dock_slide(void)
+{
+    int target = dock_target();
+
+    if (dock_off == target)
+        return;
+    if (!gui_prefs.anim) {
+        dock_off = target;
+        return;
+    }
+    int diff = target - dock_off, step = diff * MIN(gdt_ms, 50) / 90;       /* ease-out, delta-time based */
+    if (!step)
+        step = diff > 0 ? 1 : -1;
+    dock_off += step;
+    if ((diff > 0 && dock_off > target) || (diff < 0 && dock_off < target))
+        dock_off = target;
+    animating = true;
 }
 
 static int dock_icon_x(int i)
@@ -505,7 +668,10 @@ static void draw_dock(struct gfx_surface *s)
 
     if (!ndock)
         return;
+    dock_slide();
     dock_rect(&x, &y, &w, &h);
+    if (dock_off >= h + 10)
+        return;                                         /* fully hidden */
     gfx_fill_round_rect(s, x - 1, y - 1, w + 2, h + 2, 19, gui_th->line);
     gfx_fill_round_rect(s, x, y, w, h, 18, gfx_blend(gfx_get_pixel(s, x + w / 2, y + 2), gui_th->menu, 215));
     for (int i = 0; i < ndock; i++) {
@@ -826,7 +992,18 @@ static int menu_hit(int px, int py)
     return -2;
 }
 
-/* Sleep: the picture fades to black; any key or pointer movement wakes it. */
+static void lock_now(void)
+{
+    if (users_count() == 0 || !sys_prefs.setup_done || boot_has_arg("guitest") || boot_has_arg("nosetup"))
+        return;
+    gfx_set_brightness(MAX(10, MIN(100, sys_prefs.brightness)));
+    gui_lock_screen();
+    input_flush();
+    mbuttons = 0;
+    need_redraw = true;
+}
+
+/* Sleep: the picture fades to black; any key or pointer movement wakes it, then the lock screen asks for the password. */
 static void gui_sleep(void)
 {
     struct gfx_surface *sc = gfx_screen();
@@ -851,6 +1028,7 @@ static void gui_sleep(void)
     gfx_set_brightness(b);
     mbuttons = 0;
     need_redraw = true;
+    lock_now();
 }
 
 /* Right click on the desktop */
@@ -939,11 +1117,9 @@ static void menu_action(int i)
         panels_toggle(PANEL_CONTROL);
     else if (code == MI_D_NC)
         panels_toggle(PANEL_NOTIFY);
-    else if (code == MI_D_LOCK) {
-        gui_login();
-        input_flush();
-        need_redraw = true;
-    } else if (code == MI_D_SLEEP)
+    else if (code == MI_D_LOCK)
+        lock_now();
+    else if (code == MI_D_SLEEP)
         gui_sleep();
     else if (code == MI_QUIT)
         gui_quit();
@@ -1237,7 +1413,7 @@ void gui_maximize(struct gui_window *w)
         w->rcw = w->cw;
         w->rch = w->ch;
         w->maximized = true;
-        gui_resize(w, sw - 2, sh - MENUBAR_H - TITLE_H - 2 - 84);
+        gui_resize(w, sw - 2, sh - MENUBAR_H - TITLE_H - 2 - (sys_prefs.dock_hide ? 0 : 84));
         w->x = 0;
         w->y = MENUBAR_H;
     } else {
@@ -1559,6 +1735,17 @@ static void render(void)
         gfx_blit(s, 0, 0, wallpaper, 0, 0, sw, sh);
     else
         gfx_fill_rect(s, 0, 0, sw, sh, gui_th->bg_top);
+    if (wall_old) {                                     /* wallpaper change: the old picture fades out over 450 ms */
+        int t = (int)(anim_now() - wall_old_t0);
+        if (t >= 450) {
+            gfx_surface_free(wall_old);
+            wall_old = NULL;
+        } else {
+            int r = 450 - t;
+            gfx_blend_surface(s, wall_old, (int)(256LL * r * r / (450 * 450)));
+            animating = true;
+        }
+    }
     struct gui_window *front = focused();
     for (int i = 0; i < nz; i++)
         if (!wins[zorder[i]].minimized)
@@ -1814,6 +2001,19 @@ static void handle_mouse(const struct input_event *ev)
         gui_request_frames();
         return;
     }
+    if (ev->wheel) {                                    /* scroll wheel or touchpad edge: the window under the pointer */
+        int wi = hit_window(mx, my);
+        struct gui_window *tw = wi >= 0 ? &wins[wi] : focused();
+        int lines = ev->wheel * 3;
+        if (tw && tw->used) {
+            if (tw->app->scroll)
+                tw->app->scroll(tw, lines);
+            else if (tw->app->key)
+                for (int k = 0; k < (lines < 0 ? -lines : lines) / 3; k++)
+                    tw->app->key(tw, lines < 0 ? KEY_UP : KEY_DOWN, 0);
+            gui_redraw();
+        }
+    }
     if (left_now && !left_before)
         mouse_click(mx, my, GUI_BTN_LEFT);
     if (right_now && !right_before)
@@ -1999,6 +2199,7 @@ void gui_run(void)
     panels_init();
 
     gui_apply_sys_prefs();
+    wall_apply_saved();
     tg_light_mode = !gui_prefs.dark;
     if (sys_prefs.open_terminal || boot_has_arg("guitest"))
         gui_open_named("Terminal");

@@ -1,4 +1,4 @@
-# MyOS 2.11.0 — Horizon
+# MyOS 2.12.0 — Horizon
 
 **A hobby operating system built from scratch in C and x86 assembly.**
 
