@@ -52,6 +52,7 @@ struct usb_dev {
     uint16_t vid, pid;
     uint8_t cls;
     bool is_hub, multi_tt;
+    bool claimed;               /* a class driver outside HID (webcam ...) owns it */
     int nports;                 /* hubs                                         */
     struct usb_dev *child[USB_MAX_HUB_PORTS + 1];
     uint8_t child_state[USB_MAX_HUB_PORTS + 1];     /* 0 empty, 1 enumerated, 2 failed */
@@ -79,6 +80,11 @@ struct usb_hc_ops {
     /* root hub */
     int  (*rh_connected)(struct usb_hc *hc, int port);      /* 1 if a device we own is present */
     int  (*rh_reset)(struct usb_hc *hc, int port);          /* reset; returns USB_* speed or -1 */
+    /* Isochronous IN stream (webcams). NULL = this controller type cannot do it. `burst` = extra packets per
+     * interval (0..2), `interval` = bInterval of the endpoint. cb gets every completed packet group. */
+    int  (*iso_start)(struct usb_dev *d, int epnum, int mps, int burst, int interval,
+                      void (*cb)(void *ctx, const uint8_t *data, int len), void *ctx);
+    void (*iso_stop)(struct usb_dev *d);
 };
 
 struct usb_hc {
@@ -111,6 +117,11 @@ volatile uint8_t *usb_map_bar0(const struct pci_device *pd);
 
 bool btusb_attach(struct usb_dev *d, int total);       /* Bluetooth dongles */
 void btusb_event(const uint8_t *data, int len);
+/* control transfer for class drivers; data goes through d->buf (one page) */
+int  usb_ctrl(struct usb_dev *d, uint8_t rt, uint8_t req, uint16_t val, uint16_t idx, uint16_t len);
+const char *usb_speed_name(int speed);
+bool uvc_attach(struct usb_dev *d, int total);         /* USB video class (webcams), uvc.c */
+void uvc_detach(struct usb_dev *d);
 bool usb_find_class(uint8_t cls, int n, uint16_t *vid, uint16_t *pid);
 /* n-th attached USB device that no driver claimed (not a keyboard/mouse/hub/Bluetooth): ids and class */
 bool usb_find_unclaimed(int n, uint16_t *vid, uint16_t *pid, uint8_t *cls);

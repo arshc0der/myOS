@@ -69,7 +69,7 @@ static void hw_scan(void)
         uint8_t cls;
         if (!usb_find_unclaimed(i, &vid, &pid, &cls))
             break;
-        if (cls != 0 && cls != 0xFF && cls != 0xEF)
+        if (cls != 0 && cls != 0xFF)
             continue;
         for (unsigned k = 0; k < sizeof usb_wifi_vendors / sizeof usb_wifi_vendors[0]; k++)
             if (usb_wifi_vendors[k].vid == vid) {

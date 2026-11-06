@@ -17,6 +17,8 @@ struct gfx_surface *image_load(const char *path, uint32_t bg, const char **err);
 struct gfx_surface *image_fit(const struct gfx_surface *src, int w, int h);
 /* True when the file name ends in a picture extension (.bmp .png .jpg .jpeg). */
 bool image_is_picture(const char *name);
+/* Decode a baseline JPEG that is already in memory (webcam MJPEG frames). NULL on failure. */
+struct gfx_surface *image_from_jpeg(const uint8_t *data, size_t n);
 /* Write a surface as a 24 bit BMP file. Returns 0 or -errno. */
 int image_save_bmp(const struct gfx_surface *s, const char *path);
 #endif

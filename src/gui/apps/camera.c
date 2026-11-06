@@ -72,7 +72,7 @@ static void cam_draw(struct gui_window *w)
     if (camera_count() > 1)
         gui_button(s, 160, 304, 130, 30, "Next Camera", false);
     gfx_text(s, 20, 346, c->status, t->dim, GFX_TRANSPARENT, 1);
-    gfx_text(s, 20, 366, "USB webcams need a UVC driver (not included yet).", t->dim, GFX_TRANSPARENT, 1);
+    gfx_text(s, 20, 366, "USB and built-in webcams: UVC driver (USB 3 ports only).", t->dim, GFX_TRANSPARENT, 1);
 }
 
 static void cam_click(struct gui_window *w, int x, int y, int b)

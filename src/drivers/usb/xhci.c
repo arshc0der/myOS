@@ -31,6 +31,7 @@
 #define TRB_DATA     3
 #define TRB_STATUS   4
 #define TRB_LINK     6
+#define TRB_ISOCH    5
 #define CMD_ENABLE_SLOT   9
 #define CMD_DISABLE_SLOT  10
 #define CMD_ADDRESS_DEV   11
@@ -62,6 +63,17 @@ struct xep {
     struct usb_ep *ue;
 };
 
+#define ISO_TDS 32
+struct xiso {
+    bool on;
+    int dci, len, head, burst;
+    struct ring ring;
+    uint8_t *buf[ISO_TDS];
+    paddr_t bp[ISO_TDS];
+    void (*cb)(void *ctx, const uint8_t *data, int len);
+    void *ctx;
+};
+
 struct xdev {
     bool used;
     int slot;
@@ -70,6 +82,7 @@ struct xdev {
     uint8_t *out, *in;                  /* device ctx, input ctx */
     struct ring ep0;
     struct xep xe[USB_MAX_EPS];
+    struct xiso iso;
 };
 
 static struct {
@@ -164,6 +177,30 @@ static void requeue(struct xdev *d, struct xep *e)
     ring_doorbell(d->slot, e->dci);
 }
 
+/* ---- isochronous IN (webcams) ---- */
+
+static void iso_queue(struct xdev *d, int i)
+{
+    struct xiso *I = &d->iso;
+
+    ring_push(&I->ring, (uint32_t)I->bp[i], 0, (uint32_t)I->len,
+              (TRB_ISOCH << 10) | (1 << 5) | (1 << 2) | ((uint32_t)I->burst << 16) | (1u << 31));
+}
+
+static void iso_event(struct xdev *d, uint32_t code, uint32_t status)
+{
+    struct xiso *I = &d->iso;
+    int got = 0;
+
+    if (code == CC_SUCCESS || code == CC_SHORT)
+        got = I->len - (int)(status & 0xFFFFFF);
+    if (got > 0 && I->cb)
+        I->cb(I->ctx, I->buf[I->head], got);
+    iso_queue(d, I->head);                      /* the same buffer goes back into the ring */
+    ring_doorbell(d->slot, I->dci);
+    I->head = (I->head + 1) % ISO_TDS;
+}
+
 static void handle_event(volatile struct trb *t)
 {
     uint32_t ctrl = t->ctrl, status = t->status;
@@ -186,6 +223,10 @@ static void handle_event(volatile struct trb *t)
         struct xdev *d = find_dev(slot);
         if (!d)
             return;
+        if (d->iso.on && d->iso.dci == dci) {
+            iso_event(d, code, status);
+            return;
+        }
         for (int i = 0; i < USB_MAX_EPS; i++) {
             struct xep *e = &d->xe[i];
             if (!e->ue || e->dci != dci)
@@ -303,7 +344,10 @@ static int xhci_ctrl(struct usb_dev *ud, uint8_t rt, uint8_t req, uint16_t val, 
 /* Contexts                                                            */
 /* ------------------------------------------------------------------ */
 
+static uint32_t *ctx_of(uint8_t *base, int index);
 static uint32_t *ctx(uint8_t *base, int index) { return (uint32_t *)(base + (size_t)index * (size_t)X.ctxsz); }
+
+static uint32_t *ctx_of(uint8_t *base, int index) { return ctx(base, index); }
 
 static int ilog2(uint32_t v)
 {
@@ -377,6 +421,12 @@ static void free_dev(struct xdev *d)
     for (int e = 0; e < USB_MAX_EPS; e++)
         if (d->xe[e].ring.t)
             ring_free(&d->xe[e].ring);
+    if (d->iso.ring.t) {
+        for (int i = 0; i < ISO_TDS; i++)
+            if (d->iso.buf[i])
+                dma_free(d->iso.buf[i]);
+        ring_free(&d->iso.ring);
+    }
     if (d->ep0.t)
         ring_free(&d->ep0);
     dma_free(d->out);
@@ -515,6 +565,77 @@ static int xhci_configure(struct usb_dev *ud)
     return 0;
 }
 
+static int xhci_iso_start(struct usb_dev *ud, int epnum, int mps, int burst, int interval,
+                          void (*cb)(void *ctx, const uint8_t *data, int len), void *ctx)
+{
+    struct xdev *d = ud->hcpriv;
+    struct xiso *I;
+
+    if (!d || d->iso.on || ud->speed == USB_SUPER || mps <= 0 || burst < 0 || burst > 2 || mps * (burst + 1) > 3072)
+        return -1;
+    I = &d->iso;
+    memset(I, 0, sizeof *I);
+    I->dci = epnum * 2 + 1;
+    I->len = mps * (burst + 1);
+    I->burst = burst;
+    I->cb = cb;
+    I->ctx = ctx;
+    if (!ring_alloc(&I->ring, RING_TRBS))
+        return -1;
+    for (int i = 0; i < ISO_TDS; i++) {
+        I->buf[i] = dma_page(&I->bp[i]);
+        if (!I->buf[i])
+            goto fail;
+    }
+    memset(d->in, 0, 4096);
+    uint32_t *ctl = ctx_of(d->in, 0);
+    ctl[1] = 1u | (1u << I->dci);                            /* A0 (slot) + the new endpoint */
+    fill_slot(ud, d, I->dci);
+    {
+        int intv = interval > 0 ? interval - 1 : 0;
+        if (ud->speed < USB_HIGH)
+            intv += 3;                                       /* full speed: frames -> 125 us units */
+        if (intv > 15) intv = 15;
+        uint32_t *e = ctx_of(d->in, I->dci + 1);
+        e[0] = (uint32_t)intv << 16;
+        e[1] = (3u << 1) | (5u << 3) | ((uint32_t)burst << 8) | ((uint32_t)mps << 16);   /* type 5: isochronous IN */
+        e[2] = (uint32_t)I->ring.phys | 1;
+        e[3] = 0;
+        e[4] = (uint32_t)I->len | ((uint32_t)I->len << 16);
+    }
+    int cc = command(d->in_p, (CMD_CONFIG_EP << 10) | ((uint32_t)d->slot << 24), NULL);
+    if (cc != CC_SUCCESS) {
+        log_warn("usb", "xHCI: isochronous endpoint rejected (code %d)", cc);
+        goto fail;
+    }
+    I->on = true;
+    for (int i = 0; i < ISO_TDS; i++)
+        iso_queue(d, i);
+    ring_doorbell(d->slot, I->dci);
+    return 0;
+fail:
+    for (int i = 0; i < ISO_TDS; i++)
+        if (I->buf[i])
+            dma_free(I->buf[i]);
+    ring_free(&I->ring);
+    memset(I, 0, sizeof *I);
+    return -1;
+}
+
+static void xhci_iso_stop(struct usb_dev *ud)
+{
+    struct xdev *d = ud->hcpriv;
+
+    if (!d || !d->iso.on)
+        return;
+    d->iso.on = false;
+    memset(d->in, 0, 4096);
+    ctx_of(d->in, 0)[0] = 1u << d->iso.dci;                 /* drop the endpoint */
+    ctx_of(d->in, 0)[1] = 1;
+    fill_slot(ud, d, 1);
+    command(d->in_p, (CMD_CONFIG_EP << 10) | ((uint32_t)d->slot << 24), NULL);
+}
+
 static int xhci_intr_start(struct usb_dev *ud, struct usb_ep *u)
 {
     requeue(ud->hcpriv, u->hcpriv);
@@ -575,6 +696,8 @@ static const struct usb_hc_ops xhci_ops = {
     .ctrl = xhci_ctrl,
     .configure = xhci_configure,
     .intr_start = xhci_intr_start,
+    .iso_start = xhci_iso_start,
+    .iso_stop = xhci_iso_stop,
     .poll = xhci_poll,
     .rh_connected = xhci_rh_connected,
     .rh_reset = xhci_rh_reset,

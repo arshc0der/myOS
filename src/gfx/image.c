@@ -553,6 +553,14 @@ static struct gfx_surface *load_jpeg(const uint8_t *d, size_t n, const char **er
     return s;
 }
 
+struct gfx_surface *image_from_jpeg(const uint8_t *data, size_t n)
+{
+    const char *err = NULL;
+    if (n < 4 || data[0] != 0xFF || data[1] != 0xD8)
+        return NULL;
+    return load_jpeg(data, n, &err);
+}
+
 /* ------------------------------------------------------------------ */
 
 struct gfx_surface *image_load(const char *path, uint32_t bg, const char **err)

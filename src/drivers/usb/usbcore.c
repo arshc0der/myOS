@@ -111,6 +111,13 @@ static int ctrl(struct usb_dev *d, uint8_t rt, uint8_t req, uint16_t val, uint16
     return d->hc->ops->ctrl(d, rt, req, val, idx, len);
 }
 
+int usb_ctrl(struct usb_dev *d, uint8_t rt, uint8_t req, uint16_t val, uint16_t idx, uint16_t len)
+{
+    return ctrl(d, rt, req, val, idx, len);
+}
+
+const char *usb_speed_name(int s) { return speed_name(s); }
+
 static int get_descriptor(struct usb_dev *d, uint8_t type, uint8_t index, uint16_t len)
 {
     return ctrl(d, 0x80, 6, (uint16_t)((type << 8) | index), 0, len);
@@ -129,6 +136,8 @@ static void remove_dev(struct usb_dev *d)
             d->child_state[p] = 0;
         }
     log_info("usb", "%s: device %04x:%04x removed", d->hc->name, d->vid, d->pid);
+    if (d->claimed)
+        uvc_detach(d);
     for (int e = 0; e < USB_MAX_EPS; e++)
         if (d->ep[e].used) {
             if (d->hc->ops->intr_stop)
@@ -455,6 +464,14 @@ static struct usb_dev *enumerate(struct usb_hc *hc, struct usb_dev *parent, int 
         if (has_bt && btusb_attach(d, total))
             return d;
     }
+    {
+        bool has_video = false;
+        for (int i = 9; !has_video && i + 9 <= total && d->buf[i] >= 2; i += d->buf[i])
+            if (d->buf[i + 1] == 4 && d->buf[i + 5] == 14)
+                has_video = true;
+        if (has_video && uvc_attach(d, total))
+            return d;
+    }
     attach_hid(d, total);
     return d;
 fail:
@@ -612,7 +629,7 @@ bool usb_find_unclaimed(int n, uint16_t *vid, uint16_t *pid, uint8_t *cls)
 
     for (int i = 0; i < USB_MAX_DEVS; i++) {
         const struct usb_dev *d = &devs[i];
-        if (!d->used || d->is_hub || d->cls == 0xE0 || d->cls == 9)
+        if (!d->used || d->is_hub || d->claimed || d->cls == 0xE0 || d->cls == 9)
             continue;
         bool claimed = false;
         for (int e = 0; e < USB_MAX_EPS; e++)

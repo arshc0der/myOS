@@ -13,6 +13,17 @@ int camera_register(struct camera *c)
     cams[ncams++] = c;
     return 0;
 }
+int camera_unregister(struct camera *c)
+{
+    for (int i = 0; i < ncams; i++)
+        if (cams[i] == c) {
+            for (int k = i; k + 1 < ncams; k++)
+                cams[k] = cams[k + 1];
+            ncams--;
+            return 0;
+        }
+    return -1;
+}
 int camera_count(void) { return ncams; }
 struct camera *camera_get(int i) { return i >= 0 && i < ncams ? cams[i] : NULL; }
 
