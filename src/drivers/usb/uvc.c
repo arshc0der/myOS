@@ -43,6 +43,9 @@ struct uvc {
 };
 
 static struct uvc cams[2];
+static char status[96] = "";
+
+const char *uvc_status(void) { return status; }
 
 static uint32_t le32(const uint8_t *p) { return p[0] | (p[1] << 8) | (p[2] << 16) | ((uint32_t)p[3] << 24); }
 
@@ -134,10 +137,12 @@ bool uvc_attach(struct usb_dev *d, int total)
     if (!d->hc->ops->iso_start) {
         log_info("usb", "%s port %d: webcam found, but %s has no isochronous transfers (xHCI needed)",
                  d->hc->name, d->port, d->hc->name);
+        ksnprintf(status, sizeof status, "Camera %04x:%04x is on a %s controller (needs xHCI)", d->vid, d->pid, d->hc->name);
         return false;
     }
     if (d->speed == USB_SUPER) {
         log_info("usb", "%s port %d: SuperSpeed webcam not supported yet", d->hc->name, d->port);
+        ksnprintf(status, sizeof status, "Camera %04x:%04x is SuperSpeed (not supported yet)", d->vid, d->pid);
         return false;
     }
     /* ---- read the descriptors (they are in d->buf; control transfers below would overwrite them) ---- */
@@ -185,6 +190,7 @@ bool uvc_attach(struct usb_dev *d, int total)
     if (vsif < 0 || !nf || !na) {
         log_info("usb", "%s port %d: webcam has no usable YUY2/MJPEG format (found %d frames, %d alt settings)",
                  d->hc->name, d->port, nf, na);
+        ksnprintf(status, sizeof status, "Camera %04x:%04x: no YUY2/MJPEG format (%d frames, %d modes)", d->vid, d->pid, nf, na);
         return false;
     }
     /* ---- choose the frame: closest to 320 x 240, YUY2 preferred, nothing bigger than 640 wide for YUY2 ---- */
@@ -209,32 +215,46 @@ bool uvc_attach(struct usb_dev *d, int total)
         goto fail;
     }
     /* ---- negotiate (VS_PROBE_CONTROL = 1, VS_COMMIT_CONTROL = 2) ---- */
-    int plen = bcd >= 0x0150 ? 48 : bcd >= 0x0110 ? 34 : 26;
-    memset(d->buf, 0, 64);
-    d->buf[0] = 1;                                                           /* bmHint: dwFrameInterval is fixed */
-    d->buf[2] = f->fmt;
-    d->buf[3] = f->idx;
-    memcpy(d->buf + 4, &f->interval, 4);
-    if (usb_ctrl(d, 0x21, 0x01, 0x0100, (uint16_t)vsif, (uint16_t)plen) < 0 ||        /* SET_CUR probe */
-        usb_ctrl(d, 0xA1, 0x81, 0x0100, (uint16_t)vsif, (uint16_t)plen) < 0) {        /* GET_CUR probe */
+    static const int plens[3] = { 26, 34, 48 };
+    int first = bcd >= 0x0150 ? 2 : bcd >= 0x0110 ? 1 : 0, plen = 0;
+    uint32_t maxpay = 0;
+    bool probed = false;
+    for (int t = 0; t < 3 && !probed; t++) {
+        int len = plens[(first + t) % 3];
+        memset(d->buf, 0, 64);
+        d->buf[0] = 1;                                                       /* bmHint: dwFrameInterval is fixed */
+        d->buf[2] = f->fmt;
+        d->buf[3] = f->idx;
+        memcpy(d->buf + 4, &f->interval, 4);
+        if (usb_ctrl(d, 0x21, 0x01, 0x0100, (uint16_t)vsif, (uint16_t)len) < 0 ||        /* SET_CUR probe */
+            usb_ctrl(d, 0xA1, 0x81, 0x0100, (uint16_t)vsif, (uint16_t)len) < 0)           /* GET_CUR probe */
+            continue;
+        probed = true;
+        plen = len;
+        maxpay = le32(d->buf + 22);
+    }
+    if (!probed) {
         log_warn("usb", "webcam: probe failed");
+        ksnprintf(status, sizeof status, "Camera %04x:%04x refused the format negotiation", d->vid, d->pid);
         goto fail;
     }
-    uint32_t maxpay = le32(d->buf + 22);
     if (usb_ctrl(d, 0x21, 0x01, 0x0200, (uint16_t)vsif, (uint16_t)plen) < 0) {        /* SET_CUR commit */
         log_warn("usb", "webcam: commit failed");
+        ksnprintf(status, sizeof status, "Camera %04x:%04x: commit failed", d->vid, d->pid);
         goto fail;
     }
-    /* ---- alternate setting: the smallest one that carries the payload, else the biggest ---- */
-    int pick = -1;
-    for (int i = 0; i < na; i++) {
-        if (alts[i].payload >= (int)maxpay && (pick < 0 || alts[i].payload < alts[pick].payload))
-            pick = i;
-    }
-    if (pick < 0)
-        for (int i = 0; i < na; i++)
-            if (pick < 0 || alts[i].payload > alts[pick].payload)
-                pick = i;
+    /* ---- alternate settings in order of bandwidth: the first that carries the payload, then bigger ones ---- */
+    int order[MAX_ALTS], no = 0;
+    for (int i = 0; i < na; i++)
+        order[no++] = i;
+    for (int i = 0; i < no; i++)
+        for (int k = i + 1; k < no; k++)
+            if (alts[order[k]].payload < alts[order[i]].payload) {
+                int t = order[i]; order[i] = order[k]; order[k] = t;
+            }
+    int start = 0;
+    while (start < no - 1 && alts[order[start]].payload < (int)maxpay)
+        start++;
     struct uvc *u = NULL;
     for (int i = 0; i < 2; i++)
         if (!cams[i].used) { u = &cams[i]; break; }
@@ -259,18 +279,22 @@ bool uvc_attach(struct usb_dev *d, int total)
     u->h = f->h;
     u->mjpeg = f->mjpeg;
     u->fid = -1;
-    int burst = (alts[pick].raw >> 11) & 3, mps = alts[pick].raw & 0x7FF;
-    if (d->hc->ops->iso_start(d, alts[pick].ep, mps, burst, alts[pick].interval, on_packet, u) < 0) {
-        log_warn("usb", "webcam: could not start the isochronous stream");
-        kfree(u->acc);
-        kfree(u->ready);
-        u->used = false;
-        goto fail;
+    int pick = -1;
+    for (int k = start; k < no && pick < 0; k++) {
+        int i = order[k];
+        int burst = (alts[i].raw >> 11) & 3, mps = alts[i].raw & 0x7FF;
+        if (d->hc->ops->iso_start(d, alts[i].ep, mps, burst, alts[i].interval, on_packet, u) < 0)
+            continue;
+        if (usb_ctrl(d, 0x01, 0x0B, alts[i].alt, (uint16_t)vsif, 0) < 0) {      /* SET_INTERFACE: start streaming */
+            if (d->hc->ops->iso_stop)
+                d->hc->ops->iso_stop(d);
+            continue;
+        }
+        pick = i;
     }
-    if (usb_ctrl(d, 0x01, 0x0B, alts[pick].alt, (uint16_t)vsif, 0) < 0) {          /* SET_INTERFACE: start streaming */
-        log_warn("usb", "webcam: SET_INTERFACE failed");
-        if (d->hc->ops->iso_stop)
-            d->hc->ops->iso_stop(d);
+    if (pick < 0) {
+        log_warn("usb", "webcam: could not start the isochronous stream");
+        ksnprintf(status, sizeof status, "Camera %04x:%04x: the USB controller refused the video stream", d->vid, d->pid);
         kfree(u->acc);
         kfree(u->ready);
         u->used = false;
@@ -283,9 +307,11 @@ bool uvc_attach(struct usb_dev *d, int total)
     u->cam.h = OUT_H;
     u->cam.grab = uvc_grab;
     u->cam.priv = u;
+    camera_init();                                                           /* the test pattern stays camera 0 */
     camera_register(&u->cam);
     log_info("usb", "%s port %d: webcam %04x:%04x %dx%d %s, %d bytes per interval (%s speed)", d->hc->name, d->port,
              d->vid, d->pid, f->w, f->h, f->mjpeg ? "MJPEG" : "YUY2", alts[pick].payload, usb_speed_name(d->speed));
+    ksnprintf(status, sizeof status, "Camera %04x:%04x streaming, waiting for the first picture", d->vid, d->pid);
     return true;
 fail:
     d->claimed = false;

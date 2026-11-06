@@ -2,6 +2,7 @@
 #include "guiapi.h"
 #include "camera.h"
 #include "image.h"
+#include "usbcore.h"
 #include "sys.h"
 #include "vfs.h"
 #include "heap.h"
@@ -17,6 +18,7 @@ static void cam_open(struct gui_window *w)
     w->priv = c;
     if (c) {
         c->frame = gfx_surface_create(320, 240);
+        c->src = camera_count() > 0 ? camera_count() - 1 : 0;      /* a real camera, if there is one, comes after the test pattern */
         strcpy(c->status, camera_count() ? "Press Space to take a photo" : "No camera found");
     }
 }
@@ -72,7 +74,10 @@ static void cam_draw(struct gui_window *w)
     if (camera_count() > 1)
         gui_button(s, 160, 304, 130, 30, "Next Camera", false);
     gfx_text(s, 20, 346, c->status, t->dim, GFX_TRANSPARENT, 1);
-    gfx_text(s, 20, 366, "USB and built-in webcams: UVC driver (USB 3 ports only).", t->dim, GFX_TRANSPARENT, 1);
+    if (uvc_status()[0])
+        gfx_text(s, 20, 366, uvc_status(), t->dim, GFX_TRANSPARENT, 1);
+    else if (camera_count() < 2)
+        gfx_text(s, 20, 366, "No USB or built-in camera detected (run lsusb in Terminal).", t->dim, GFX_TRANSPARENT, 1);
 }
 
 static void cam_click(struct gui_window *w, int x, int y, int b)

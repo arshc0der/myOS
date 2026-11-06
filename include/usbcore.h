@@ -122,6 +122,7 @@ int  usb_ctrl(struct usb_dev *d, uint8_t rt, uint8_t req, uint16_t val, uint16_t
 const char *usb_speed_name(int speed);
 bool uvc_attach(struct usb_dev *d, int total);         /* USB video class (webcams), uvc.c */
 void uvc_detach(struct usb_dev *d);
+const char *uvc_status(void);                          /* why the last webcam did not work (for the Camera app) */
 bool usb_find_class(uint8_t cls, int n, uint16_t *vid, uint16_t *pid);
 /* n-th attached USB device that no driver claimed (not a keyboard/mouse/hub/Bluetooth): ids and class */
 bool usb_find_unclaimed(int n, uint16_t *vid, uint16_t *pid, uint8_t *cls);

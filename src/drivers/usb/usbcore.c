@@ -606,7 +606,7 @@ static const char *kind_name(const struct usb_dev *d)
             int k = d->ep[e].hid.kind;
             return k == HID_KEYBOARD ? "keyboard" : k == HID_MOUSE ? "mouse" : "tablet";
         }
-    return d->is_hub ? "hub" : "no supported interface";
+    return d->is_hub ? "hub" : d->claimed ? "webcam" : "no supported interface";
 }
 
 /* n-th USB device with this device class (used to spot Bluetooth dongles, class 0xE0) */
