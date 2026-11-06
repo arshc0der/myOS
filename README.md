@@ -2,42 +2,64 @@
 
 **A hobby operating system built from scratch in C and x86 assembly.**
 
-MyOS is a 32-bit x86 hobby operating system developed to explore kernel engineering, memory management, multitasking, filesystems, device drivers, networking, graphics, and graphical user interfaces.
+MyOS is an independent 32-bit x86 hobby operating system developed to explore low-level system programming, kernel architecture, memory management, process scheduling, filesystems, hardware drivers, networking, graphics, and graphical user interfaces.
 
-Built from the ground up, MyOS boots through GRUB using the Multiboot protocol and is organized into modular kernel subsystems. The project combines low-level operating system development with an evolving graphical desktop environment.
+Built from the ground up, MyOS boots through GRUB using the Multiboot protocol and is organized into modular kernel subsystems. What began as a small kernel with a text console has evolved into an operating system project with a graphical desktop, user accounts, persistent storage, system settings, device support, and a growing collection of desktop applications.
 
-The Horizon series focuses on expanding the desktop experience, improving hardware support, and introducing new system capabilities.
+The **Horizon series** focuses on improving the desktop experience, expanding hardware compatibility, and introducing new operating system capabilities.
 
-![Latest Release](https://img.shields.io/github/v/release/arshc0der/myOS?label=Latest%20Release&style=for-the-badge) ![License: MIT](https://img.shields.io/github/license/arshc0der/myOS?style=for-the-badge) ![GitHub Stars](https://img.shields.io/github/stars/arshc0der/myOS?style=for-the-badge&logo=github) ![GitHub Forks](https://img.shields.io/github/forks/arshc0der/myOS?style=for-the-badge&logo=github) ![GitHub Issues](https://img.shields.io/github/issues/arshc0der/myOS?style=for-the-badge&logo=github) ![Open Pull Requests](https://img.shields.io/github/issues-pr/arshc0der/myOS?style=for-the-badge&logo=github) ![Last Commit](https://img.shields.io/github/last-commit/arshc0der/myOS?style=for-the-badge&logo=git) ![Top Language](https://img.shields.io/github/languages/top/arshc0der/myOS?style=for-the-badge&logo=c)
+---
 
-**Repository:** [arshc0der/myOS](https://github.com/arshc0der/myOS) · **License:** MIT
+## Project Information
 
-> **Current release: MyOS 2.7.0**
->
-> This release has been compiled but has not been run or runtime-tested. Run `make clean && make` before building.
+![Latest Release](https://img.shields.io/github/v/release/arshc0der/myOS?label=Latest%20Release&style=for-the-badge)
+![License: MIT](https://img.shields.io/github/license/arshc0der/myOS?style=for-the-badge)
+![GitHub Stars](https://img.shields.io/github/stars/arshc0der/myOS?style=for-the-badge&logo=github)
+![GitHub Forks](https://img.shields.io/github/forks/arshc0der/myOS?style=for-the-badge&logo=github)
+![GitHub Issues](https://img.shields.io/github/issues/arshc0der/myOS?style=for-the-badge&logo=github)
+![Open Pull Requests](https://img.shields.io/github/issues-pr/arshc0der/myOS?style=for-the-badge&logo=github)
+![Last Commit](https://img.shields.io/github/last-commit/arshc0der/myOS?style=for-the-badge&logo=git)
+![Top Language](https://img.shields.io/github/languages/top/arshc0der/myOS?style=for-the-badge&logo=c)
+
+| Property | Details |
+|---|---|
+| Project | MyOS |
+| Current release | 2.13.0 |
+| Series | Horizon |
+| Architecture | 32-bit x86 |
+| Primary languages | C and x86 Assembly |
+| Boot protocol | GRUB / Multiboot |
+| Filesystem | MyFS, with VFS support |
+| License | MIT |
+| Repository | [github.com/arshc0der/myOS](https://github.com/arshc0der/myOS) |
 
 ---
 
 ## Table of Contents
 
 - [Overview](#overview)
-- [What's New in 2.7.0](#whats-new-in-270)
-- [Features](#features)
-- [Screenshots and Demo](#screenshots-and-demo)
+- [Project Goals](#project-goals)
+- [Latest Release: MyOS 2.13.0](#latest-release-myos-2130)
+- [Features and Subsystems](#features-and-subsystems)
+- [Desktop Environment](#desktop-environment)
+- [Applications](#applications)
+- [Hardware and Device Support](#hardware-and-device-support)
+- [Networking and Connectivity](#networking-and-connectivity)
+- [Screenshots and Demonstration](#screenshots-and-demonstration)
+- [System Requirements](#system-requirements)
 - [Getting Started](#getting-started)
 - [Building MyOS](#building-myos)
 - [Running MyOS](#running-myos)
 - [Using the Shell](#using-the-shell)
 - [Filesystems and Storage](#filesystems-and-storage)
-- [Memory Management and Processes](#memory-management-and-processes)
-- [Graphics and Desktop](#graphics-and-desktop)
+- [Kernel Architecture](#kernel-architecture)
 - [Project Structure](#project-structure)
 - [Development and Customization](#development-and-customization)
 - [Documentation](#documentation)
-- [Testing](#testing)
+- [Testing and Verification](#testing-and-verification)
 - [Known Limitations](#known-limitations)
 - [Troubleshooting](#troubleshooting)
-- [Roadmap](#roadmap)
+- [Development Roadmap](#development-roadmap)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -45,96 +67,126 @@ The Horizon series focuses on expanding the desktop experience, improving hardwa
 
 ## Overview
 
-MyOS started as a small kernel with a text console and an interactive shell. It has gradually evolved into a modular operating system project featuring memory management, process scheduling, filesystem support, hardware drivers, networking, and a graphical desktop.
+MyOS is designed as a learning-oriented operating system that brings together fundamental operating system concepts and practical desktop functionality.
 
-The project is designed for both experimentation and learning. Its modular architecture makes it possible to explore individual operating system components without treating the kernel as one large, monolithic program.
+Rather than relying on an existing operating system kernel, MyOS implements its own kernel components, device interfaces, storage abstractions, graphical subsystem, and system utilities.
 
-With MyOS, you can explore:
+The project provides an environment for experimenting with:
 
-- How an x86 kernel boots using GRUB and Multiboot.
-- How physical and virtual memory are managed.
-- How processes and scheduling work.
-- How filesystems interact with storage devices.
-- How hardware is accessed through device drivers.
-- How framebuffer graphics and window management are implemented.
-- How networking and system services are developed.
+- Kernel initialization and hardware abstraction.
+- CPU architecture and interrupt handling.
+- Physical and virtual memory management.
+- Process scheduling and synchronization.
+- Filesystem implementation and persistent storage.
+- USB and PCI device discovery.
+- Graphics rendering and window management.
+- Input devices and desktop interaction.
+- Network protocols and connectivity.
+- Application development and system configuration.
 
-MyOS is an ongoing hobby operating system project. Features are introduced progressively, and their stability and hardware compatibility may vary between releases.
+MyOS is an ongoing hobby project. Features are introduced progressively, and implementation completeness, stability, and hardware compatibility vary between subsystems and releases.
 
-## What's New in 2.7.0
+## Project Goals
 
-MyOS 2.7.0 expands accessibility, system interaction, networking, and device support.
+The main goals behind MyOS are:
 
-### Accessibility
+**1. Operating System Development**
 
-- **Screen Magnifier:** A 3x magnification lens displayed beside the pointer.
-- **Visual Screen Reader:** A caption bar identifies the window, menu, or dock item under the pointer and displays the active window.
-- **Audio Feedback:** Short PC-speaker tones play when the identified interface element changes.
+Explore how an operating system works internally, from its boot process and kernel initialization to memory management, device drivers, and system services.
 
-### Assistant App
+**2. Modular Architecture**
 
-A new Assistant application is available from the Dock. It accepts typed requests for common system actions and information, including:
+Keep kernel components organized into independent subsystems with defined interfaces, making the codebase easier to understand, extend, and maintain.
 
-- Opening applications.
-- Checking the date and time.
-- Switching between dark and light appearance.
-- Adjusting volume and mute settings.
-- Controlling magnification and the screen reader.
-- Checking network and update status.
-- Restarting and shutting down the system.
+**3. Graphical Desktop Experience**
 
-The Voice Assistant setting adds a tone to responses.
+Develop a usable desktop environment with windows, applications, system settings, notifications, and common desktop interactions.
 
-### Update Detection
+**4. Hardware Compatibility**
 
-- Checks connected disks for the `MyOSUpdate/VERSION` marker.
-- Supports manual checks through Settings > General > Check now.
-- Can check for updates when Settings starts if the corresponding setting is enabled.
-- Notifies the user when a newer kernel is detected.
+Gradually expand support for storage devices, USB controllers, input devices, cameras, networking hardware, and other peripherals.
 
-Copying the updated `kernel.elf` to boot media remains a manual operation.
+**5. Learning and Experimentation**
 
-### Translations
+Provide an open environment for exploring systems programming, kernel engineering, graphics, filesystems, and hardware-level development.
 
-Initial translations are available for setup screens, the login screen, and Settings page names:
+---
 
-- Hindi (Latin letters)
-- Spanish
-- French
-- German
-- Portuguese
+## Latest Release: MyOS 2.13.0
 
-### Networking
+<badge color="success">Latest documented release</badge>
 
-The network stack now includes basic TCP client and HTTP functionality.
+MyOS 2.13.0 focuses on productivity improvements and expanded USB controller support.
 
-New interfaces include:
+### Notepad Improvements
 
-- `net_tcp_connect`
-- `net_tcp_send`
-- `net_tcp_recv`
-- `net_tcp_close`
-- `net_http_get`
+Notepad now includes a dedicated menu bar with document and editing operations.
 
-The shell also includes the `wget` command for HTTP downloads.
+**File menu:**
+- New
+- Open
+- Save
+- Save As
+- Close Window
 
-### USB Bluetooth
+**Edit menu:**
+- Cut
+- Copy
+- Paste
+- Delete Line
+- Go to Line
 
-Initial USB Bluetooth support has been introduced through `src/drivers/usb/btusb.c`.
+Additional functionality includes:
 
-- Resets and registers a supported USB Bluetooth dongle.
-- Performs device inquiry through the Scan action.
-- Lists nearby Bluetooth devices and their names when transmitted.
+- New documents use the `Untitled` name.
+- Modified documents display `- Edited` in the window title.
+- Save As prompts for a destination path.
+- Keyboard shortcuts:
+  - `Ctrl+S` — Save
+  - `Ctrl+O` — Open
+  - `Ctrl+N` — New
 
-**Important:** MyOS 2.7.0 has only been compiled. These new features have not been runtime-tested.
+### Unsaved Changes Protection
 
-For the complete release details, see the [MyOS 2.7.0 release notes](https://github.com/arshc0der/myOS/releases).
+Notepad now checks for unsaved modifications before closing a window, creating a new document, or opening another file.
 
-## Features
+A three-button dialog provides:
 
-The following sections describe the major subsystems present in the MyOS project source tree. Individual capabilities may have different levels of implementation and stability.
+- **Save**
+- **Don't Save**
+- **Cancel**
 
-### 1. Kernel and Hardware
+The underlying GUI system also introduces:
+
+- `gui_ask_save` — A reusable save-confirmation dialog.
+- `close_request` — A hook that allows applications to handle window-close requests.
+
+These interfaces provide a foundation for implementing unsaved-changes protection in other applications.
+
+### Multi-Controller USB Support
+
+USB controller handling has been expanded for computers containing multiple controllers.
+
+Previously, MyOS used only the first detected xHCI controller and first detected EHCI controller. Devices connected to additional controllers could remain undetected.
+
+The updated implementation supports up to:
+
+- Three xHCI controllers.
+- Three EHCI controllers.
+
+For Intel 7-, 8-, and 9-series chipsets, USB ports are also switched from EHCI to xHCI.
+
+**Testing status:** The release has been compile-checked but has not been run-tested.
+
+For complete release information, see the [MyOS Releases](https://github.com/arshc0der/myOS/releases) page.
+
+---
+
+## Features and Subsystems
+
+The following sections describe the major capabilities represented in the project documentation and development history. Not every feature has the same level of implementation or runtime verification.
+
+### 1. Kernel and Hardware Foundation
 
 - 32-bit x86 kernel written in C and assembly.
 - GRUB boot support using the Multiboot protocol.
@@ -145,19 +197,27 @@ The following sections describe the major subsystems present in the MyOS project
 - Programmable Interval Timer (PIT).
 - CPU information through CPUID.
 - PCI device enumeration.
-- PS/2 keyboard and mouse input.
+- PS/2 keyboard and mouse support.
 - Real-time clock (RTC).
 - Serial and VGA console drivers.
 - Kernel logging, formatted output, and panic handling.
 
 ### 2. Memory Management
 
-- Physical memory management with a bitmap allocator.
+MyOS contains separate memory-management components for handling physical memory, virtual memory, and dynamic kernel allocations.
+
+Documented components include:
+
+- Physical memory management using a bitmap allocator.
 - Virtual memory management and paging.
-- Kernel heap allocator.
+- Kernel heap allocation.
 - Memory-related diagnostic interfaces.
 
 ### 3. Processes and Synchronization
+
+The process subsystem provides the foundation for scheduling and coordinating kernel execution.
+
+Documented capabilities include:
 
 - Scheduler subsystem with configurable policies.
 - Context-switching support.
@@ -167,8 +227,12 @@ The following sections describe the major subsystems present in the MyOS project
 
 ### 4. Filesystems and Storage
 
-- Virtual filesystem (VFS).
-- RAM-based filesystem (ramfs).
+MyOS uses a Virtual Filesystem (VFS) abstraction to organize filesystem operations and storage devices.
+
+Components include:
+
+- Virtual filesystem.
+- RAM filesystem (ramfs).
 - Device filesystem (devfs).
 - MyOS filesystem (MyFS).
 - Block-device abstraction.
@@ -179,33 +243,280 @@ The following sections describe the major subsystems present in the MyOS project
 
 ### 5. Graphics and Desktop
 
+The graphical subsystem provides the foundation for the MyOS desktop.
+
+Capabilities include:
+
 - Framebuffer graphics support.
 - Framebuffer-based text console.
 - Graphics primitives and terminal grid.
+- Font rendering.
 - Graphical user interface subsystem.
 - Window management.
 - Desktop applications.
-- Settings and system configuration.
+- System settings and configuration.
 - Screen magnification and visual accessibility features.
 
 ### 6. Networking and Connectivity
 
+Networking development includes:
+
 - Network stack development.
 - Basic TCP client interfaces.
-- HTTP GET support.
+- HTTP GET functionality.
 - Shell-based HTTP downloads through `wget`.
 - Initial USB Bluetooth device detection and inquiry.
+- PCI and USB network-device discovery.
 
 ### 7. Developer Tools
 
+The repository also contains development infrastructure:
+
 - Modular shell commands.
-- Built-in kernel self-tests.
+- Built-in kernel self-test sources.
 - Host-side test infrastructure.
 - Student templates for custom initialization.
-- Filesystem and scheduler development templates.
+- Filesystem development templates.
+- Scheduler development templates.
 - Architecture and subsystem documentation.
 
-## Screenshots and Demo
+---
+
+## Desktop Environment
+
+The MyOS desktop has evolved beyond a basic graphical shell into a collection of integrated applications and system components.
+
+### Window Management
+
+- Graphical application windows.
+- Window controls and maximization.
+- Window switching.
+- Desktop interaction and context menus.
+- Close-request handling for applications.
+
+### Desktop Interaction
+
+The desktop context menu includes shortcuts for:
+
+- Opening Terminal.
+- Opening Files.
+- Changing wallpaper.
+- Opening Display Settings.
+- Opening Control Center.
+- Accessing Notifications and Calendar.
+- Locking the screen.
+- Sleep.
+- Restart.
+- Shut Down.
+
+### Lock Screen
+
+The lock screen provides:
+
+- Dimmed wallpaper background.
+- Large clock and date.
+- Round user avatar.
+- Password entry interface.
+
+Waking from Sleep returns to the lock screen and requires the user's password.
+
+### Wallpaper and Appearance
+
+The Wallpaper page in Settings supports:
+
+- 18 built-in colours and gradients.
+- Custom pictures selected from `~/Pictures`.
+- Custom image paths.
+- Fill, Fit, Stretch, and Centre modes.
+- Live wallpaper preview.
+- Smooth cross-fade transitions.
+- Persistent wallpaper preferences.
+
+Wallpapers selected through Photos are also remembered after a restart.
+
+### Dock
+
+Dock visibility can be configured under **Settings → Dock**.
+
+Available modes:
+
+| Mode | Behaviour |
+|---|---|
+| Always show | Keeps the Dock visible |
+| Hide when maximized | Hides the Dock when a window is maximized |
+| Auto-hide | Hides the Dock and reveals it when the pointer reaches the bottom edge |
+
+The Dock uses smooth slide animations, and maximized windows can use the space freed by the hidden Dock.
+
+### Control Center and Notifications
+
+The desktop includes a Control Center and Notification Center with calendar integration.
+
+Documented functionality includes:
+
+- Airplane Mode.
+- Do Not Disturb.
+- Brightness adjustment.
+- Theme transitions.
+- Notification banners.
+- Calendar access.
+
+### Accessibility
+
+The project includes accessibility-oriented features such as:
+
+- Screen magnification.
+- Visual screen-reader captions.
+- Identification of interface elements under the pointer.
+- PC-speaker audio feedback.
+
+The visual screen reader uses captions and tones rather than a full speech engine.
+
+---
+
+## Applications
+
+MyOS includes a growing collection of graphical applications and system utilities.
+
+| Application | Purpose |
+|---|---|
+| Files | Browse files, user folders, and available storage devices |
+| Terminal | Execute shell commands and inspect the system |
+| Notepad | Create, edit, open, and save text documents |
+| Photos | View supported images and set pictures as wallpaper |
+| Camera | Access supported USB and built-in cameras |
+| Settings | Configure system preferences and hardware-related options |
+| Task Manager | Inspect system activity |
+| Assistant | Access typed commands for common system actions |
+| System Information | View system and hardware information |
+
+### Files
+
+The Files application provides access to user folders and mounted storage.
+
+Documented functionality includes:
+
+- Home folders.
+- Downloads, Documents, Pictures, Music, and Desktop folders.
+- Disk and volume navigation.
+- MyFS formatting for supported unformatted disks.
+- Selected-item highlighting.
+- Folder symbols and improved visual presentation.
+
+### Terminal
+
+Terminal provides an interactive command-line environment with system and filesystem utilities.
+
+It also supports command history and text editing within the terminal interface.
+
+### Notepad
+
+Notepad supports document creation, editing, saving, and opening, with keyboard shortcuts and unsaved-changes protection.
+
+### Photos
+
+Photos provides image viewing with BMP, PNG, and JPEG decoding documented in the project history. It also supports setting an image as the desktop wallpaper.
+
+### Camera
+
+The Camera application uses the USB Video Class (UVC) driver for supported USB and built-in cameras.
+
+Recent camera improvements include:
+
+- Camera startup diagnostics.
+- Alternative bandwidth and negotiation-size retries.
+- Real-camera selection by default instead of the test pattern.
+- Camera identification in `lsusb`.
+
+The current driver has hardware compatibility limitations, particularly with older EHCI controllers and non-standard camera devices.
+
+### Assistant
+
+The Assistant application accepts typed requests for common system actions and information, including:
+
+- Opening applications.
+- Checking date and time.
+- Changing light and dark appearance.
+- Adjusting volume and mute settings.
+- Controlling magnification and visual screen-reader features.
+- Checking network and update status.
+- Restarting and shutting down the system.
+
+---
+
+## Hardware and Device Support
+
+Hardware compatibility is an ongoing development area.
+
+### USB Controllers
+
+MyOS includes USB controller support for xHCI and EHCI devices.
+
+The 2.13.0 release expands controller handling to support up to three controllers of each type.
+
+### Input Devices
+
+Documented input support includes:
+
+- PS/2 keyboard and mouse.
+- USB mouse devices.
+- PS/2 IntelliMouse wheel scrolling.
+- USB mouse wheel scrolling.
+- Supported USB and I2C-HID touchpad edge scrolling.
+
+Scrolling is directed to the window beneath the pointer for Files, Terminal history, and Notepad. Other applications receive arrow-key input as their scrolling mechanism.
+
+**Touchpad limitation:** PS/2 laptop touchpads currently behave as ordinary mice. Synaptics and ELAN gestures, including two-finger scrolling and pinch, require vendor protocols that are not implemented. Right-edge touchpad scrolling is currently supported on USB touchpads only.
+
+### Camera Devices
+
+The UVC camera driver supports USB and built-in camera devices connected through xHCI.
+
+Current limitations include:
+
+- EHCI camera streaming is not supported.
+- Some non-standard laptop cameras may not be recognised.
+- Camera privacy switches may prevent detection.
+
+### Bluetooth
+
+Initial USB Bluetooth support includes:
+
+- Supported dongle registration.
+- Device inquiry through the Scan action.
+- Listing nearby Bluetooth devices and their transmitted names.
+
+Pairing and Bluetooth audio are not implemented.
+
+### Wi-Fi
+
+Wi-Fi device discovery can identify supported PCI and USB wireless hardware, but a complete Wi-Fi driver is not available.
+
+Per-chip firmware and WPA2 support are still required.
+
+---
+
+## Networking and Connectivity
+
+Networking development is progressing through a modular network stack.
+
+Documented interfaces include:
+
+| Interface | Purpose |
+|---|---|
+| `net_tcp_connect` | Establish a TCP connection |
+| `net_tcp_send` | Send TCP data |
+| `net_tcp_recv` | Receive TCP data |
+| `net_tcp_close` | Close a TCP connection |
+| `net_http_get` | Perform an HTTP GET request |
+
+The shell also includes a `wget` command for HTTP downloads.
+
+These are basic networking capabilities rather than a complete modern networking implementation.
+
+---
+
+## Screenshots and Demonstration
 
 Explore the MyOS graphical desktop and its applications.
 
@@ -217,8 +528,6 @@ Explore the MyOS graphical desktop and its applications.
   <strong>Explore the MyOS desktop experience.</strong><br>
   Desktop · Terminal · File Manager · Notepad · Task Manager · Settings
 </p>
-
-Additional screenshots:
 
 <details>
 <summary>View individual desktop screenshots</summary>
@@ -253,11 +562,13 @@ Additional screenshots:
 
 </details>
 
-## Getting Started
+---
 
-### Requirements
+## System Requirements
 
-A Linux development environment is recommended.
+A Linux development environment is recommended for building MyOS.
+
+### Development Tools
 
 | Tool | Purpose |
 |---|---|
@@ -265,15 +576,13 @@ A Linux development environment is recommended.
 | GNU Make | Build automation |
 | GNU binutils | Assemble and link the kernel |
 | GRUB utilities | Prepare a bootable ISO |
-| xorriso | Create the ISO image |
+| xorriso | Create ISO images |
 | QEMU | Run and debug MyOS |
-| Bochs | Alternative emulator and debugging environment |
+| Bochs | Alternative emulation and debugging |
 
 The exact toolchain requirements depend on the compiler flags and build targets configured in the Makefile.
 
 ### Fedora
-
-Install the commonly required development tools:
 
 ```bash
 sudo dnf install gcc glibc-devel.i686 make binutils \
@@ -289,9 +598,11 @@ sudo apt install build-essential gcc-multilib binutils make \
   grub-pc-bin xorriso mtools qemu-system-x86
 ```
 
-If your distribution uses different GRUB package names, install the equivalent packages for your release.
+If package names differ on your distribution, install the equivalent packages.
 
-## Building MyOS
+---
+
+## Getting Started
 
 ### 1. Clone the Repository
 
@@ -300,48 +611,66 @@ git clone https://github.com/arshc0der/myOS.git
 cd myOS
 ```
 
-### 2. Inspect Available Build Targets
+### 2. Inspect the Build Targets
+
+Check the available Makefile targets:
 
 ```bash
 make help
 ```
 
-If a `help` target is not available, inspect the Makefile directly:
+If a help target is unavailable, inspect the Makefile:
 
 ```bash
 grep -nE '^[[:alnum:]_.-]+:' Makefile
 ```
 
-### 3. Compile the Kernel
+### 3. Build MyOS
+
+Perform a clean build:
 
 ```bash
 make clean
 make
 ```
 
-The expected kernel output is `kernel.elf`, based on the project's build instructions.
+The expected kernel output is:
+
+```text
+kernel.elf
+```
 
 ### 4. Build the Bootable ISO
+
+If the ISO target is available:
 
 ```bash
 make iso
 ```
 
-The expected ISO output is `myos.iso`.
+The documented expected ISO output is:
+
+```text
+myos.iso
+```
 
 ### 5. Run MyOS
+
+Use the configured run target:
 
 ```bash
 make run
 ```
 
-Build target names and output paths should be checked against the current Makefile if they differ from these instructions.
+Build target names and output locations should always be checked against the current Makefile.
+
+---
 
 ## Running MyOS
 
 ### QEMU
 
-QEMU provides a convenient way to experiment with MyOS without modifying your host operating system.
+QEMU allows you to experiment with MyOS without modifying your host operating system.
 
 A basic launch command is:
 
@@ -349,7 +678,7 @@ A basic launch command is:
 qemu-system-i386 -cdrom myos.iso -m 128M
 ```
 
-You can experiment with different memory sizes and virtual hardware configurations as kernel support improves.
+You can experiment with memory sizes and virtual hardware configurations as kernel support improves.
 
 ### VirtualBox and VMware
 
@@ -358,25 +687,27 @@ You can experiment with different memory sizes and virtual hardware configuratio
 3. Configure the virtual hardware.
 4. Boot from the virtual optical drive.
 
-Compatibility depends on the firmware mode and devices exposed to the guest.
+Compatibility depends on firmware mode and the devices exposed to the guest.
 
 ### Bochs
 
-Bochs is useful for low-level debugging and examining processor state.
+Bochs can be useful for low-level debugging and examining processor state.
 
-The repository includes configuration and test tools under:
+The repository includes Bochs configuration and test tools under:
 
 ```text
 tools/bochs/
 ```
 
-Review the included configuration files for the expected image paths and launch procedure.
+Review the included configuration files for expected image paths and launch procedures.
 
 ### Real Hardware
 
-Physical hardware compatibility depends on firmware, display initialization, storage controllers, and supported devices.
+Physical hardware compatibility depends on firmware, display initialization, storage controllers, USB controllers, and supported devices.
 
-Test MyOS in a virtual machine first. Back up important data before attempting physical boot experiments.
+**Recommendation:** Test MyOS in a virtual machine first. Back up important data before attempting physical boot experiments.
+
+---
 
 ## Using the Shell
 
@@ -390,13 +721,11 @@ This displays the commands registered in the running build.
 
 ### Core Commands
 
-The following commands are documented in the project:
-
 | Command | Description |
 |---|---|
 | `help` | List shell commands |
 | `about` | Display project information |
-| `version` | Display the kernel version |
+| `version` | Display kernel version |
 | `sysinfo` | Show a system summary |
 | `meminfo` | Inspect memory information |
 | `cpuinfo` | Display CPU details |
@@ -411,10 +740,12 @@ The following commands are documented in the project:
 
 Additional filesystem, graphics, and process commands are implemented in separate shell modules:
 
-- `src/shell/cmd_fs.c`
-- `src/shell/cmd_gfx.c`
-- `src/shell/cmd_proc.c`
-- `src/shell/cmd_sys.c`
+```text
+src/shell/cmd_fs.c
+src/shell/cmd_gfx.c
+src/shell/cmd_proc.c
+src/shell/cmd_sys.c
+```
 
 Use the running shell's `help` output as the authoritative reference for command availability and syntax.
 
@@ -431,11 +762,11 @@ MyOS> lspci
 
 Actual output depends on the emulator, available memory, virtual hardware, and current kernel build.
 
+---
+
 ## Filesystems and Storage
 
 MyOS separates filesystem operations from storage devices through a virtual filesystem and block-device layer.
-
-The source tree includes RAM-backed storage, device files, an on-disk filesystem implementation, and a student filesystem template.
 
 ### Filesystem Components
 
@@ -450,9 +781,20 @@ The source tree includes RAM-backed storage, device files, an on-disk filesystem
 | Partition support | `src/fs/partition.c` | Partition handling |
 | ATA driver | `src/drivers/ata.c` | ATA PIO storage access |
 
+### Storage Features
+
+- Virtual filesystem abstraction.
+- RAM-backed storage.
+- MyFS filesystem support.
+- Device filesystem.
+- ATA PIO disk access.
+- MBR partition support.
+- Filesystem mounting.
+- User storage and mounted-volume management.
+
 ### Example Filesystem Workflow
 
-The following is an illustrative workflow based on the project's earlier shell documentation:
+The following is an illustrative workflow from the project's earlier documentation:
 
 ```text
 MyOS> lsblk
@@ -464,15 +806,23 @@ MyOS> cat /mnt/a.txt
 MyOS> df
 ```
 
-Device names, mount syntax, formatting support, and shell redirection behavior depend on the implementation in the current build. Check `help` before using these commands.
+Device names, mount syntax, formatting support, and shell redirection behaviour depend on the current implementation. Check `help` before using these commands.
 
 For filesystem implementation details, see `docs/WRITING_A_FILESYSTEM.md`.
 
-## Memory Management and Processes
+---
+
+## Kernel Architecture
+
+MyOS is organized into modular components to keep hardware-specific operations, memory management, filesystems, graphics, and process management separate.
 
 ### Memory Management
 
-Memory management code is located in `src/mm/`.
+Memory-management code is located in:
+
+```text
+src/mm/
+```
 
 | File | Responsibility |
 |---|---|
@@ -484,7 +834,11 @@ Related interfaces are declared in `include/`.
 
 ### Scheduling and Synchronization
 
-The process subsystem is located in `src/proc/`.
+The process subsystem is located in:
+
+```text
+src/proc/
+```
 
 | File | Responsibility |
 |---|---|
@@ -493,9 +847,9 @@ The process subsystem is located in `src/proc/`.
 | `src/arch/i386/switch.S` | Architecture-specific context switching |
 | `src/user/my_scheduler.c` | Student scheduler implementation |
 
-For more information, see `docs/PROCESSES_AND_SCHEDULING.md`.
+For additional details, see `docs/PROCESSES_AND_SCHEDULING.md`.
 
-## Graphics and Desktop
+### Graphics and GUI
 
 The graphics subsystem is organized into dedicated modules.
 
@@ -510,23 +864,7 @@ The graphics subsystem is organized into dedicated modules.
 
 Related interfaces are located in `include/`.
 
-### Desktop Keyboard Shortcuts
-
-The following shortcuts are described in the earlier desktop documentation. Their availability may depend on the current GUI build.
-
-| Shortcut | Action |
-|---|---|
-| `Alt+T` | Open Terminal |
-| `Alt+F` | Open Files |
-| `Alt+I` | Open System Info |
-| `Alt+N` | Open Notepad |
-| `Alt+A` | Open About |
-| `Alt+Tab` | Switch windows |
-| `Alt+W` | Close a window |
-| `Alt+M` | Open the Start menu |
-| `Alt+Q` | Return to the text shell |
-
-Application-specific shortcuts may also be available.
+---
 
 ## Project Structure
 
@@ -534,21 +872,26 @@ MyOS uses a modular source layout to separate public interfaces, kernel implemen
 
 ```text
 myOS/
+│
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   ├── GUI_ROADMAP.md
 │   ├── PROCESSES_AND_SCHEDULING.md
 │   └── WRITING_A_FILESYSTEM.md
+│
 ├── include/                 # Kernel headers and interfaces
+│
 ├── iso/
-│   └── boot/grub/
-│       └── grub.cfg         # GRUB boot menu
+│   └── boot/
+│       └── grub/
+│           └── grub.cfg     # GRUB boot menu
+│
 ├── src/
 │   ├── arch/i386/           # GDT, IDT, PIC, context switching
 │   ├── boot/                # Assembly boot entry
 │   ├── drivers/             # Hardware drivers
 │   ├── fs/                  # VFS, MyFS, ramfs, devfs, storage
-│   ├── gfx/                 # Framebuffer, font, graphics
+│   ├── gfx/                 # Framebuffer, fonts, graphics
 │   ├── gui/                 # Graphical interface
 │   ├── kernel/              # Kernel entry, console, panic, logging
 │   ├── lib/                 # Kernel utility functions
@@ -557,20 +900,28 @@ myOS/
 │   ├── shell/               # Shell and command modules
 │   ├── test/                # Kernel self-tests
 │   └── user/                # Student extension implementations
+│
 ├── templates/               # Student starter templates
+│
 ├── tests/
 │   └── host/                # Host-side test infrastructure
+│
 ├── tools/
 │   └── bochs/               # Bochs configuration and test tools
+│
 ├── linker.ld                # Kernel linker script
 ├── Makefile                 # Build system
 ├── LICENSE
 └── README.md
 ```
 
+The structure above documents the project's major directories. Individual files and subdirectories may change as development continues.
+
+---
+
 ## Development and Customization
 
-MyOS includes starter files for experimenting with the kernel and implementing custom functionality.
+MyOS includes starter files for experimenting with kernel functionality and implementing custom components.
 
 ### Student Extension Points
 
@@ -588,16 +939,18 @@ MyOS includes starter files for experimenting with the kernel and implementing c
 1. Clone and build MyOS.
 2. Boot it in QEMU.
 3. Explore the system through the shell.
-4. Read `docs/ARCHITECTURE.md` to understand the kernel structure.
+4. Read `docs/ARCHITECTURE.md`.
 5. Experiment with `src/user/user_init.c`.
 6. Study `src/fs/` before implementing filesystem functionality.
 7. Read `docs/WRITING_A_FILESYSTEM.md`.
 8. Explore `src/proc/` and the scheduler implementation.
-9. Run the available tests after making changes.
+9. Run available tests after making changes.
+
+---
 
 ## Documentation
 
-The `docs/` directory contains guides for major project subsystems.
+The `docs/` directory contains guides for the major project subsystems.
 
 | Document | Description |
 |---|---|
@@ -606,9 +959,13 @@ The `docs/` directory contains guides for major project subsystems.
 | `PROCESSES_AND_SCHEDULING.md` | Process and scheduler design |
 | `WRITING_A_FILESYSTEM.md` | Filesystem development guide |
 
+Additional release-specific documentation is maintained alongside the corresponding release notes.
+
 Documentation should be updated whenever the corresponding implementation or supported interfaces change.
 
-## Testing
+---
+
+## Testing and Verification
 
 MyOS includes kernel self-test sources and host-side test infrastructure.
 
@@ -640,31 +997,79 @@ make -C tests/host
 
 The existence of test source files does not guarantee that every test passes.
 
-**MyOS 2.7.0 testing status:** The release has been compiled but has not been run or runtime-tested. Runtime compatibility and behavior of its features have not yet been verified.
+### MyOS 2.13.0 Verification Status
+
+| Area | Status |
+|---|---|
+| Compilation | Compile-checked |
+| Notepad runtime behaviour | Not runtime-tested |
+| Unsaved-changes dialogs | Not runtime-tested |
+| Multiple USB controllers | Not runtime-tested |
+| Physical hardware compatibility | Not verified |
+
+Runtime testing on emulators and physical hardware remains an important part of future development.
+
+---
 
 ## Known Limitations
 
 MyOS is an actively developed hobby operating system. Some subsystems are experimental or have limited hardware support.
 
-### MyOS 2.7.0 Limitations
+### USB and Input Devices
 
-- **Wi-Fi:** No Wi-Fi driver is available. Wi-Fi chipsets require vendor firmware and dedicated drivers. Ethernet should be used instead.
-- **Bluetooth:** Initial USB dongle detection and scanning are available, but pairing, Bluetooth audio, and Bluetooth mouse support are not implemented.
-- **Speech:** The screen reader and Assistant do not have a speech engine. The screen reader uses visual captions and PC-speaker tones.
-- **Microphone:** Microphone input is not supported.
-- **Automatic updates:** Update detection is available, but automatic downloading and installation are not implemented. Kernel replacement remains manual.
-- **HTTPS:** The current HTTP functionality does not support HTTPS.
-- **TCP reliability:** Only one connection at a time is supported, and retransmission handling is not implemented.
-- **Translations:** Translation coverage is limited to setup screens, login, and Settings page names. Other menus and applications remain in English.
-- **CJK fonts:** Japanese and Chinese interfaces fall back to English because CJK font support is unavailable.
+- Multiple USB controller support has been expanded, but the latest implementation has not been runtime-tested.
+- Some USB devices may require additional driver support.
+- PS/2 laptop touchpads currently behave as ordinary mice.
+- Synaptics and ELAN gestures, including two-finger scrolling and pinch, require vendor protocols that are not implemented.
+- Touchpad right-edge scrolling is currently supported on USB touchpads only.
 
-Other hardware and subsystem limitations may apply depending on the build and emulator configuration.
+### Camera Support
+
+- Camera streaming requires xHCI; EHCI camera streaming is not supported.
+- Some non-standard laptop cameras may not be recognised by the UVC driver.
+- Camera privacy switches can prevent camera detection.
+
+### Networking
+
+- Wi-Fi device discovery is available, but a complete Wi-Fi driver is not implemented.
+- Wi-Fi requires chipset-specific firmware and WPA2 support.
+- Basic TCP functionality does not yet provide a complete modern networking stack.
+- TCP retransmission handling is not implemented.
+- The documented HTTP functionality does not support HTTPS.
+
+### Bluetooth
+
+- Initial USB Bluetooth detection and scanning are available.
+- Pairing, Bluetooth audio, and Bluetooth mouse support are not implemented.
+
+### Accessibility and Audio
+
+- The screen reader currently uses visual captions and PC-speaker tones.
+- A full speech engine is not available.
+- Microphone input is not supported.
+
+### Updates and Localization
+
+- Update detection is available, but automatic downloading and installation are not implemented.
+- Kernel replacement remains a manual operation.
+- Translation coverage is limited.
+- Japanese and Chinese interfaces fall back to English because CJK font support is unavailable.
+
+### Runtime Verification
+
+The latest release, MyOS 2.13.0, has been compile-checked only. Runtime behaviour and compatibility must be verified separately.
+
+---
 
 ## Troubleshooting
 
 ### GRUB Cannot Find or Load the Kernel
 
-Check that the ISO contains the kernel at the path configured in `iso/boot/grub/grub.cfg`.
+Check that the ISO contains the kernel at the path configured in:
+
+```text
+iso/boot/grub/grub.cfg
+```
 
 Rebuild the kernel and ISO:
 
@@ -700,15 +1105,28 @@ A RAM disk may be an alternative when supported by the current build.
 
 ### Keyboard or Mouse Input Does Not Work
 
-Verify the virtual machine's input-device configuration and the current PS/2 driver support.
+Verify the virtual machine's input-device configuration and current driver support.
 
-Device behavior can differ between QEMU, Bochs, VirtualBox, VMware, and UEFI-based environments.
+Device behaviour can differ between QEMU, Bochs, VirtualBox, VMware, and UEFI-based environments.
+
+### USB Devices Are Not Detected
+
+For USB controller or device detection issues, run:
+
+```bash
+lsusb
+dmesg
+```
+
+Share the output, particularly log lines beginning with `usb`, along with your PC model and the affected device.
 
 ### Network or Bluetooth Features Do Not Work
 
-Remember that MyOS 2.7.0 has not been runtime-tested. Network and Bluetooth support also have the limitations described above. Check the available drivers and device compatibility before troubleshooting individual applications.
+Remember that hardware support varies by device and implementation. Check the available drivers and documented limitations before troubleshooting individual applications.
 
-## Roadmap
+---
+
+## Development Roadmap
 
 Potential areas for future development include:
 
@@ -724,31 +1142,41 @@ Potential areas for future development include:
 - Extending translation coverage and font support.
 - Improving automated testing and emulator coverage.
 - Expanding debugging tools and kernel diagnostics.
+- Improving hardware compatibility across different x86 systems.
 
 These are development directions, not promises of inclusion in a particular release.
+
+---
 
 ## Contributing
 
 Contributions, bug reports, documentation improvements, and new ideas are welcome.
 
-To contribute:
+### How to Contribute
 
 1. Explore the existing source code and documentation.
 2. Open an issue before making a large architectural change.
 3. Keep changes focused on a specific subsystem.
 4. Build and test your changes where possible.
-5. Include reproducible steps and actual test results in bug reports and pull requests.
+5. Document new functionality and changes to existing interfaces.
+6. Submit a pull request with a clear description of the changes.
 
-When reporting bugs, include:
+### Bug Reports
+
+When reporting an issue, include:
 
 - MyOS version.
 - Emulator or physical hardware used.
 - Firmware mode and virtual hardware configuration.
 - Build commands.
 - Steps to reproduce the issue.
-- Relevant logs and observed behavior.
+- Relevant logs and observed behaviour.
+
+For hardware-related issues, include device identification information whenever possible.
 
 **Repository:** [github.com/arshc0der/myOS](https://github.com/arshc0der/myOS)
+
+---
 
 ## License
 
@@ -758,4 +1186,7 @@ See the [LICENSE](LICENSE) file for the complete license terms.
 
 ---
 
-**MyOS 2.7.0 — Exploring operating system development, one subsystem at a time.**
+<p align="center">
+  <strong>MyOS 2.13.0 — Horizon</strong><br>
+  Exploring operating system development, one subsystem at a time.
+</p>
