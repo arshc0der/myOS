@@ -496,8 +496,23 @@ static int dhcp_run(void)
 /* Bring-up, ping, DNS                                               */
 /* ---------------------------------------------------------------- */
 
+static bool net_off;
+void net_set_enabled(bool on)
+{
+    net_off = !on;
+    if (!on) {
+        up = false;
+        if (dev)
+            dev->ip = 0;
+    } else
+        net_start_async();
+}
+bool net_enabled(void) { return !net_off; }
+
 int net_up(void)
 {
+    if (net_off)
+        return -ENODEV;
     if (up)
         return 0;
     if (busy)

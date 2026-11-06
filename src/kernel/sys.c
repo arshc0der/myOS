@@ -348,7 +348,7 @@ const char *users_home(void)
 
 struct sys_prefs sys_prefs = { .tz_minutes = 330, .city = "Kolkata", .refresh_hz = 0, .clock24 = true, .date_format = 0,
     .auto_time = true, .require_password = true, .auto_updates = false, .check_updates = true, .open_terminal = true,
-    .volume = 60, .hostname = "myos" };
+    .volume = 60, .hostname = "myos", .wifi_on = true, .bt_on = true, .brightness = 100 };
 
 const char *const sys_languages[] = { "English", "Hindi", "Spanish", "French", "German", "Portuguese", "Japanese", "Chinese" };
 const char *const sys_greetings[] = { "Hello", "Namaste", "Hola", "Bonjour", "Hallo", "Ola", "Konnichiwa", "Ni hao" };
@@ -361,7 +361,7 @@ int sys_country_count(void) { return 10; }
 void sys_prefs_defaults(void)
 {
     struct sys_prefs d = { .tz_minutes = 330, .refresh_hz = 0, .clock24 = true, .auto_time = true, .require_password = true,
-                           .check_updates = true, .open_terminal = true, .volume = 60 };
+                           .check_updates = true, .open_terminal = true, .volume = 60, .wifi_on = true, .bt_on = true, .brightness = 100 };
     strlcpy(d.city, "Kolkata", sizeof d.city);
     strlcpy(d.hostname, "myos", sizeof d.hostname);
     sys_prefs = d;
@@ -413,11 +413,11 @@ void sys_country_apply(int i)
     X(acc_contrast, acc_contrast) X(acc_motion, acc_reduce_motion) X(acc_kbd, acc_kbd_pointer) X(acc_reader, acc_reader) \
     X(acc_magnify, acc_magnify) X(priv_diag, priv_diag) X(priv_loc, priv_location) X(priv_ana, priv_analytics) \
     X(reqpw, require_password) X(autoupd, auto_updates) X(chkupd, check_updates) X(voice, voice) X(openterm, open_terminal) \
-    X(volume, volume) X(muted, muted) X(dark, dark) X(accent, accent) X(kbdlayout, kbd_layout)
+    X(volume, volume) X(muted, muted) X(dark, dark) X(accent, accent) X(kbdlayout, kbd_layout) X(dnd, dnd) X(airplane, airplane) X(wifion, wifi_on) X(bton, bt_on) X(bright, brightness)
 
 void sys_prefs_save(void)
 {
-    char b[800];
+    char b[1000];
     int n = ksnprintf(b, sizeof b, "tz=%d\ncity=%s\nhz=%d\nclock24=%d\nhost=%s\n", sys_prefs.tz_minutes, sys_prefs.city,
                       sys_prefs.refresh_hz, sys_prefs.clock24, sys_prefs.hostname);
 #define X(key, field) n += ksnprintf(b + n, sizeof b - (size_t)n, #key "=%d\n", (int)sys_prefs.field);
@@ -429,7 +429,7 @@ void sys_prefs_save(void)
 
 void sys_prefs_load(void)
 {
-    char b[900];
+    char b[1100];
     ssize_t n = vfs_read_file("/Users/.sysconf", b, sizeof b - 1);
     if (n <= 0)
         return;

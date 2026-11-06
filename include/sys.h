@@ -66,6 +66,8 @@ struct sys_prefs {
     char hostname[24];
     bool dark;                                  /* light / dark appearance (mirrors gui_prefs.dark) */
     int  accent;                                /* accent colour index                  */
+    bool dnd, airplane, wifi_on, bt_on;         /* Control Center */
+    int  brightness;                            /* 10..100 (software dimming of the frame buffer) */
     int  kbd_layout;                            /* 0 US, 1 UK, 2 German, 3 French, 4 Hindi (saved; key translation is US only) */
 };
 extern struct sys_prefs sys_prefs;

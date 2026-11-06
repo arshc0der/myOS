@@ -17,6 +17,12 @@ static int nwifi;
 static struct bt_adapter *bts[MAXA];
 static int nbt;
 
+static bool wifi_on = true, bt_on = true;
+void wifi_set_enabled(bool on) { wifi_on = on; }
+bool wifi_enabled(void) { return wifi_on; }
+void bt_set_enabled(bool on) { bt_on = on; }
+bool bt_enabled(void) { return bt_on; }
+
 int wifi_register(struct wifi_adapter *a) { if (nwifi >= MAXA) return -1; wifis[nwifi++] = a; return 0; }
 int wifi_count(void) { return nwifi; }
 struct wifi_adapter *wifi_get(int i) { return i >= 0 && i < nwifi ? wifis[i] : NULL; }

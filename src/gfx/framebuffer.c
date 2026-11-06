@@ -33,6 +33,23 @@ static paddr_t shadow_addr;
 static uint32_t shadow_pages;
 static const uint32_t *shadow_for;
 static bool shadow_ok;
+static uint32_t dim_mul = 256;                 /* brightness: 256 = full, lower darkens every pixel written */
+
+static inline uint32_t dimpx(uint32_t p)
+{
+    return dim_mul >= 256 ? p : ((((p & 0xFF00FFu) * dim_mul) >> 8) & 0xFF00FFu) | ((((p & 0x00FF00u) * dim_mul) >> 8) & 0x00FF00u);
+}
+
+void gfx_set_brightness(int pct)
+{
+    pct = pct < 10 ? 10 : pct > 100 ? 100 : pct;
+    uint32_t m = (uint32_t)pct * 256 / 100;
+    if (m != dim_mul) {
+        dim_mul = m;
+        shadow_ok = false;                      /* everything must be sent again */
+    }
+}
+
 static uint32_t back_pages;
 
 bool gfx_available(void) { return ready; }
@@ -197,15 +214,15 @@ void gfx_flush(int x, int y, int w, int h)
         src += a;
         n = b - a;
 
-        if (fast32) {
+        if (fast32 && dim_mul >= 256) {
             memcpy(dst, src, (size_t)n * 4);
-        } else if (fb_bpp == 32) {
+        } else if (fast32 || fb_bpp == 32) {
             uint32_t *d = (uint32_t *)dst;
             for (int i = 0; i < n; i++)
-                d[i] = pack(src[i]);
+                d[i] = pack(dimpx(src[i]));
         } else if (fb_bpp == 24) {
             for (int i = 0; i < n; i++) {
-                uint32_t p = pack(src[i]);
+                uint32_t p = pack(dimpx(src[i]));
                 dst[i * 3] = (uint8_t)p;
                 dst[i * 3 + 1] = (uint8_t)(p >> 8);
                 dst[i * 3 + 2] = (uint8_t)(p >> 16);
@@ -213,7 +230,7 @@ void gfx_flush(int x, int y, int w, int h)
         } else {
             uint16_t *d = (uint16_t *)dst;
             for (int i = 0; i < n; i++)
-                d[i] = (uint16_t)pack(src[i]);
+                d[i] = (uint16_t)pack(dimpx(src[i]));
         }
     }
     if (x0 == 0 && y0 == 0 && x1 == screen.w && y1 == screen.h)

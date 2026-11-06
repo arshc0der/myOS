@@ -206,6 +206,24 @@ void gfx_fill_rect_alpha(struct gfx_surface *s, int x, int y, int w, int h,
     }
 }
 
+void gfx_blend_surface(struct gfx_surface *dst, const struct gfx_surface *src, int alpha)
+{
+    int w = MIN(dst->w, src->w), h = MIN(dst->h, src->h);
+    if (alpha <= 0)
+        return;
+    uint32_t ia = (uint32_t)MIN(alpha, 255), inv;
+    ia += ia >> 7;
+    inv = 256 - ia;
+    for (int j = 0; j < h; j++) {
+        uint32_t *d = &dst->px[j * dst->stride];
+        const uint32_t *p = &src->px[j * src->stride];
+        for (int i = 0; i < w; i++) {
+            uint32_t u = d[i], o = p[i];
+            d[i] = ((((o & 0xFF00FFu) * ia + (u & 0xFF00FFu) * inv) >> 8) & 0xFF00FFu) | ((((o & 0x00FF00u) * ia + (u & 0x00FF00u) * inv) >> 8) & 0x00FF00u);
+        }
+    }
+}
+
 void gfx_gradient_v(struct gfx_surface *s, int x, int y, int w, int h,
                     uint32_t top, uint32_t bottom)
 {

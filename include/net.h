@@ -50,6 +50,13 @@ int  net_udp_listen(uint16_t port, void (*cb)(uint32_t src_ip, uint16_t src_port
 void net_format_ip(uint32_t ip, char *out, size_t n);
 bool net_parse_ip(const char *s, uint32_t *ip);
 
+void net_set_enabled(bool on);                       /* Ethernet switch (Control Center) */
+bool net_enabled(void);
+void wifi_set_enabled(bool on);
+bool wifi_enabled(void);
+void bt_set_enabled(bool on);
+bool bt_enabled(void);
+
 /* TCP client (one connection at a time) and plain HTTP */
 int  net_tcp_connect(uint32_t ip, uint16_t port, int timeout_ms);    /* 0 or -1 */
 int  net_tcp_send(const void *data, size_t len);

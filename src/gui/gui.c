@@ -14,6 +14,8 @@
 #include "sys.h"
 #include "image.h"
 #include "net.h"
+#include "panels.h"
+#include "notify.h"
 #include "camera.h"
 #include "vfs.h"
 #include "gfx.h"
@@ -319,8 +321,31 @@ void gui_refresh_theme(void)
     gui_redraw();
 }
 
+static struct gfx_surface *snap;                        /* old look, fading out after a theme change */
+static uint32_t snap_t0;
+
+void gui_request_frames(void)
+{
+    animating = true;
+    need_redraw = true;
+}
+
 void gui_set_dark(bool dark)
 {
+    if (gui_prefs.anim && gfx_available()) {
+        struct gfx_surface *sc = gfx_screen();
+        if (!snap || snap->w != sc->w || snap->h != sc->h) {
+            if (snap)
+                gfx_surface_free(snap);
+            snap = gfx_surface_create(sc->w, sc->h);
+        }
+        if (snap) {
+            for (int y = 0; y < sc->h; y++)
+                memcpy(snap->px + y * snap->stride, sc->px + y * sc->stride, (size_t)sc->w * 4);
+            snap_t0 = timer_us() / 1000;
+            gui_request_frames();
+        }
+    }
     gui_prefs.dark = dark;
     sys_prefs.dark = dark;
     sys_prefs_save();
@@ -662,7 +687,7 @@ static void open_app_menu(struct gui_window *w, int which)
     menu_open = M_APP;
 }
 
-static int name_x, name_w, win_x, win_w, net_x = 9999, bt_x = 9999, srch_x = 9999;
+static int name_x, name_w, win_x, win_w, net_x = 9999, bt_x = 9999, srch_x = 9999, cc_x = 9999, clock_x = 9999;
 
 static void open_name_menu(struct gui_window *f)
 {
@@ -911,11 +936,21 @@ static void draw_menubar(struct gfx_surface *s)
         ksnprintf(clock, sizeof clock, "%u:%02u %s", tm[3] % 12 ? tm[3] % 12 : 12, tm[4], tm[3] >= 12 ? "PM" : "AM");
     int cw = gfx_text_width(clock, 1);
     gfx_text(s, sw - cw - 14, 10, clock, gui_th->text, GFX_TRANSPARENT, 1);
+    clock_x = sw - cw - 22;
     /* right side, from the clock leftwards: Spotlight, network, Bluetooth, (frame rate) */
     srch_x = sw - cw - 44;
-    net_x = srch_x - 48;
+    cc_x = srch_x - 34;
+    net_x = cc_x - 48;
     bt_x = net_x - 34;
     int cy = 12;
+    {   /* Control Center icon: two small switches */
+        if (panels_is_open())
+            gfx_fill_round_rect(s, cc_x - 8, 3, 30, MENUBAR_H - 6, 6, gui_th->sel);
+        gfx_fill_round_rect(s, cc_x, 6, 14, 6, 3, gui_th->text);
+        gfx_fill_circle(s, cc_x + 10, 9, 2, gui_th->menu);
+        gfx_fill_round_rect(s, cc_x, 14, 14, 6, 3, gui_th->dim);
+        gfx_fill_circle(s, cc_x + 4, 17, 2, gui_th->menu);
+    }
     gfx_fill_circle(s, srch_x, cy, 5, gui_th->text);
     gfx_fill_circle(s, srch_x, cy, 3, gui_th->menu);
     gfx_line(s, srch_x + 4, cy + 4, srch_x + 8, cy + 8, gui_th->text);
@@ -923,7 +958,17 @@ static void draw_menubar(struct gfx_surface *s)
     if (menu_open == M_STATUS)
         gfx_fill_round_rect(s, (dd.which == 0 ? net_x : bt_x) - 8, 3, dd.which == 0 ? 36 : 26, MENUBAR_H - 6, 6, gui_th->sel);
     draw_net_icon(s, net_x, 6, net_is_up() ? gui_th->text : gui_th->dim);
-    draw_bt_icon(s, bt_x, 6, bt_count() ? gui_th->text : gui_th->dim);
+    draw_bt_icon(s, bt_x, 6, bt_count() && bt_enabled() ? gui_th->text : gui_th->dim);
+    if (power_probe()->mobile || power_probe()->battery) {
+        int bx = bt_x - 38;                              /* battery: outline only, the level cannot be read */
+        gfx_rect(s, bx, 7, 22, 11, gui_th->text);
+        gfx_fill_rect(s, bx + 22, 10, 2, 5, gui_th->text);
+        gfx_fill_rect(s, bx + 2, 9, 18, 7, power_probe()->battery ? gui_th->text : gui_th->dim);
+    }
+    if (sys_prefs.airplane)
+        gfx_text(s, bt_x - 26 - (power_probe()->mobile ? 40 : 0), 10, "+", gui_th->accent, GFX_TRANSPARENT, 1);
+    if (sys_prefs.dnd)
+        gfx_fill_circle(s, cc_x - 16, 12, 3, gui_th->accent);
     if (gui_prefs.show_fps) {
         char fp[16];
         ksnprintf(fp, sizeof fp, "%d fps", gui_fps());
@@ -1444,6 +1489,18 @@ static void render(void)
         draw_menu(s);
     if (spot_open)
         draw_spotlight(s);
+    panels_draw(s);
+    if (snap) {                                          /* theme change: the old picture fades out over 260 ms */
+        int t = (int)(timer_us() / 1000 - snap_t0);
+        if (t >= 260) {
+            gfx_surface_free(snap);
+            snap = NULL;
+        } else {
+            int r = 260 - t;
+            gfx_blend_surface(s, snap, (int)(256LL * r * r / (260 * 260)));
+            animating = true;
+        }
+    }
     if (dlg.open)
         draw_dialog(s);
     draw_reader(s);
@@ -1564,6 +1621,10 @@ static void mouse_click(int x, int y, int btn)
             open_name_menu(f);
         } else if (f && win_w && x >= win_x && x < win_x + win_w) {
             open_window_menu(f);
+        } else if (x >= clock_x) {
+            panels_toggle(PANEL_NOTIFY);
+        } else if (x >= cc_x - 8 && x < cc_x + 22) {
+            panels_toggle(PANEL_CONTROL);
         } else if (x >= net_x - 8 && x < net_x + 26) {
             open_status_menu(0);
         } else if (x >= bt_x - 8 && x < bt_x + 18) {
@@ -1660,6 +1721,11 @@ static void handle_mouse(const struct input_event *ev)
     bool left_now = ev->buttons & MOUSE_LEFT, left_before = mbuttons & MOUSE_LEFT;
     bool right_now = ev->buttons & MOUSE_RIGHT, right_before = mbuttons & MOUSE_RIGHT;
 
+    if (panels_mouse(mx, my, (uint8_t)ev->buttons, (uint8_t)mbuttons)) {
+        mbuttons = ev->buttons;
+        gui_request_frames();
+        return;
+    }
     if (left_now && !left_before)
         mouse_click(mx, my, GUI_BTN_LEFT);
     if (right_now && !right_before)
@@ -1687,6 +1753,8 @@ static void handle_key(const struct input_event *ev)
         dlg_key(k);
         return;
     }
+    if (panels_key(k))
+        return;
     if (ev->mods & MOD_ALT) {
         if (k == ' ') { spot_toggle(); return; }
         if (k == '\t') { cycle_windows(); return; }
@@ -1840,6 +1908,7 @@ void gui_run(void)
     display_probe();
     gui_login();
     input_flush();
+    panels_init();
 
     gui_apply_sys_prefs();
     tg_light_mode = !gui_prefs.dark;

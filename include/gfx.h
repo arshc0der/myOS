@@ -64,6 +64,8 @@ void gfx_blit(struct gfx_surface *dst, int dx, int dy,
 /* Blend colour c over the existing pixels; alpha 0..255. */
 void gfx_fill_rect_alpha(struct gfx_surface *s, int x, int y, int w, int h,
                          uint32_t c, int alpha);
+void gfx_set_brightness(int percent);                 /* 10..100: darkens what reaches the screen */
+void gfx_blend_surface(struct gfx_surface *dst, const struct gfx_surface *src, int alpha);   /* dst = src*alpha + dst*(1-alpha) */
 uint32_t gfx_blend(uint32_t under, uint32_t over, int alpha);
 
 /* ---- text (8x8 font, scale 1 = 8x8 pixels, 2 = 16x16 ...) ---- */

@@ -135,7 +135,7 @@ static int bt_scan(struct bt_adapter *a, struct bt_device *out, int max)
     static const uint8_t mode[1] = { 2 };                             /* extended inquiry results */
     static const uint8_t inq[5] = { 0x33, 0x8B, 0x9E, 2, 0 };         /* general access code, 2.5 s, no limit */
     (void)a;
-    if (!bt.ready)
+    if (!bt.ready || !bt_enabled())
         return 0;
     bt.found = 0;
     bt.done = false;
