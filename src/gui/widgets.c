@@ -145,15 +145,50 @@ static bool ext_is(const char *name, const char *ext)
 }
 
 /* A folder or a document, drawn with the theme colours. */
-void gui_file_icon(struct gfx_surface *s, int x, int y, int sz, int kind, const char *name)
+/* A symbol on the front of well-known folders (Downloads, Documents ...), drawn in colour `g`. */
+static void folder_glyph(struct gfx_surface *s, int x, int y, int sz, const char *name, uint32_t g)
+{
+#define P(f) ((sz * (f)) / 100)
+    int cx = x + P(50), cy = y + P(62), r = P(14);
+
+    if (!name || sz < 18)
+        return;
+    if (!strcmp(name, "Downloads")) {                   /* arrow pointing down */
+        gfx_fill_rect(s, cx - MAX(P(3), 1), cy - r, MAX(P(6), 2), r, g);
+        for (int i = 0; i <= r; i++)
+            gfx_hline(s, cx - (r - i), cy + i, 2 * (r - i) + 1, g);
+    } else if (!strcmp(name, "Documents")) {            /* page with lines */
+        gfx_fill_rect(s, cx - r + P(3), cy - r, 2 * r - P(6), 2 * r, g);
+        for (int i = 0; i < 3; i++)
+            gfx_fill_rect(s, cx - r + P(6), cy - r + P(5) + i * P(7), 2 * r - P(12), MAX(P(2), 1),
+                          gfx_blend(g, gui_th->accent, 120));
+    } else if (!strcmp(name, "Pictures")) {             /* sun and hill */
+        gfx_fill_circle(s, cx - r / 2, cy - r / 2, MAX(r / 3, 1), g);
+        for (int i = 0; i < r; i++)
+            gfx_hline(s, cx - r + i, cy + r - i - 1 + (r / 3), 2 * (i + 1), g);
+    } else if (!strcmp(name, "Music")) {                /* note */
+        gfx_fill_circle(s, cx - r / 3, cy + r / 2, MAX(r / 3, 2), g);
+        gfx_fill_rect(s, cx - r / 3 + MAX(r / 3, 2) - 1, cy - r, MAX(P(3), 1), r + r / 2, g);
+        gfx_fill_rect(s, cx - r / 3 + MAX(r / 3, 2) - 1, cy - r, r, MAX(P(4), 2), g);
+    } else if (!strcmp(name, "Desktop")) {              /* screen */
+        gfx_fill_rect(s, cx - r, cy - r + P(2), 2 * r, r + r / 2, g);
+        gfx_fill_rect(s, cx - r / 3, cy + r / 2 + P(2), 2 * r / 3, MAX(P(4), 2), g);
+    }
+#undef P
+}
+
+void gui_file_icon_sel(struct gfx_surface *s, int x, int y, int sz, int kind, const char *name, bool selected)
 {
 #define P(f) ((sz * (f)) / 100)
     uint32_t fg = gui_th->accent == gui_th->text ? gui_th->dim : gui_th->accent;
 
     if (kind == 2) {                                    /* VFS_DIR */
-        gfx_fill_round_rect(s, x + P(6), y + P(16), P(34), P(18), P(6), fg);
-        gfx_fill_round_rect(s, x + P(4), y + P(26), P(92), P(60), P(10), fg);
-        gfx_fill_rect(s, x + P(4), y + P(40), P(92), MAX(P(3), 1), gfx_blend(fg, GFX_WHITE, 70));
+        uint32_t body = selected ? GFX_WHITE : fg;      /* a selected folder turns white so it stays visible on the blue highlight */
+        uint32_t edge = selected ? GFX_RGB(226, 230, 240) : gfx_blend(fg, GFX_WHITE, 70);
+        gfx_fill_round_rect(s, x + P(6), y + P(16), P(34), P(18), P(6), body);
+        gfx_fill_round_rect(s, x + P(4), y + P(26), P(92), P(60), P(10), body);
+        gfx_fill_rect(s, x + P(4), y + P(40), P(92), MAX(P(3), 1), edge);
+        folder_glyph(s, x, y, sz, name, selected ? fg : GFX_WHITE);
         return;
     }
     int dx = x + P(16), dy = y + P(6), dw = P(68), dh = P(88);
@@ -173,4 +208,9 @@ void gui_file_icon(struct gfx_surface *s, int x, int y, int sz, int kind, const 
         for (int i = 0; i < 3; i++)
             gfx_fill_rect(s, dx + P(12), dy + P(34) + i * P(14), dw - P(24), MAX(P(4), 1), gui_th->dim);
 #undef P
+}
+
+void gui_file_icon(struct gfx_surface *s, int x, int y, int sz, int kind, const char *name)
+{
+    gui_file_icon_sel(s, x, y, sz, kind, name, false);
 }

@@ -102,6 +102,14 @@ static int clip_kind;
 #define MI_NET_ON -30
 #define MI_NET_SETTINGS -31
 #define MI_BT_SETTINGS -32
+#define MI_D_TERM -40
+#define MI_D_FILES -41
+#define MI_D_WALL -42
+#define MI_D_DISPLAY -43
+#define MI_D_CC -44
+#define MI_D_NC -45
+#define MI_D_LOCK -46
+#define MI_D_SLEEP -47
 #define MI_WIN_FOCUS -200               /* MI_WIN_FOCUS - window index */
 #define MENU_W 230
 #define MENU_ITEM_H 26
@@ -818,6 +826,62 @@ static int menu_hit(int px, int py)
     return -2;
 }
 
+/* Sleep: the picture fades to black; any key or pointer movement wakes it. */
+static void gui_sleep(void)
+{
+    struct gfx_surface *sc = gfx_screen();
+    int b = MAX(10, MIN(100, sys_prefs.brightness));
+    struct input_event ev;
+
+    for (int i = 1; i <= 8; i++) {
+        gfx_set_brightness(b - (b - 10) * i / 8);
+        gfx_flush_all();
+        timer_sleep_ms(30);
+    }
+    gfx_fill_rect(sc, 0, 0, sc->w, sc->h, GFX_BLACK);
+    gfx_flush_all();
+    input_flush();
+    for (;;) {
+        if (input_wait(&ev, 500) != 0)
+            continue;
+        if (ev.type == INPUT_KEY || (ev.type == INPUT_MOUSE && (ev.dx || ev.dy || ev.buttons)))
+            break;
+    }
+    input_flush();
+    gfx_set_brightness(b);
+    mbuttons = 0;
+    need_redraw = true;
+}
+
+/* Right click on the desktop */
+static void open_desktop_menu(int x, int y)
+{
+    dd.n = 0;
+    dd.owner = -1;
+    dd_add("Open Terminal", MI_D_TERM);
+    dd_add("Open Files", MI_D_FILES);
+    dd_add("-", 0);
+    dd_add("Change Wallpaper...", MI_D_WALL);
+    dd_add("Display Settings...", MI_D_DISPLAY);
+    dd_add("Control Center", MI_D_CC);
+    dd_add("Notifications and Calendar", MI_D_NC);
+    dd_add("-", 0);
+    if (users_count() > 0 && sys_prefs.setup_done)
+        dd_add("Lock Screen", MI_D_LOCK);
+    dd_add("Sleep", MI_D_SLEEP);
+    dd_add("Restart...", MI_RESTART);
+    dd_add("Shut Down...", MI_SHUTDOWN);
+    dd_size(230);
+    int mw, mh, hh = 10;
+    (void)mw;
+    for (int i = 0; i < dd.n; i++)
+        hh += dd.it[i].code == MI_SEP ? 9 : MENU_ITEM_H;
+    mh = hh;
+    dd.x = MAX(4, MIN(x, sw - dd.w - 4));
+    dd.y = MAX(MENUBAR_H + 2, MIN(y, sh - mh - 4));
+    menu_open = M_POPUP;
+}
+
 static void menu_action(int i)
 {
     int code = dd.it[i].code, owner = dd.owner;
@@ -863,6 +927,24 @@ static void menu_action(int i)
         settings_show("Network");
     else if (code == MI_BT_SETTINGS)
         settings_show("Bluetooth");
+    else if (code == MI_D_TERM)
+        gui_open_named("Terminal");
+    else if (code == MI_D_FILES)
+        gui_open_named("Files");
+    else if (code == MI_D_WALL)
+        settings_show("Appearance");
+    else if (code == MI_D_DISPLAY)
+        settings_show("Display");
+    else if (code == MI_D_CC)
+        panels_toggle(PANEL_CONTROL);
+    else if (code == MI_D_NC)
+        panels_toggle(PANEL_NOTIFY);
+    else if (code == MI_D_LOCK) {
+        gui_login();
+        input_flush();
+        need_redraw = true;
+    } else if (code == MI_D_SLEEP)
+        gui_sleep();
     else if (code == MI_QUIT)
         gui_quit();
     else if (code == MI_SHUTDOWN)
@@ -1653,8 +1735,14 @@ static void mouse_click(int x, int y, int btn)
         }
     }
     int idx = hit_window(x, y);
-    if (idx < 0)
+    if (idx < 0) {
+        int dx, dy, dw, dh;
+        dock_rect(&dx, &dy, &dw, &dh);
+        bool on_dock = ndock && x >= dx && x < dx + dw && y >= dy - 10 && y < dy + dh;
+        if (btn == GUI_BTN_RIGHT && y >= MENUBAR_H && !fs_front() && !on_dock)
+            open_desktop_menu(x, y);
         return;
+    }
     struct gui_window *w = &wins[idx];
     bring_to_front(idx);
     int lx = x - w->x, ly = y - w->y;

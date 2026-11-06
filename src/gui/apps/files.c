@@ -86,7 +86,7 @@ static void side_build(void)
             side_add(0, sub[i], p, NULL);
         }
     }
-    side_add(0, "Macintosh HD", "/", NULL);
+    side_add(0, "MyOS", "/", NULL);
     side_add(0, "tmp", "/tmp", NULL);
     side_add(1, "Disks", NULL, NULL);
     blockdev_for_each(side_disk, NULL);
@@ -475,6 +475,7 @@ static void files_draw(struct gui_window *w)
     gfx_text(s, SIDE_W + 254, 16, f->path, t->dim, GFX_TRANSPARENT, 1);
 
     int visible = r * c;
+    uint32_t hl = gui_th->accent == gui_th->text ? GFX_RGB(0, 105, 230) : gui_th->accent;   /* blue (the accent colour) */
     for (int k = 0; k < visible; k++) {
         int i = f->top * c + k;
         if (i >= f->nent)
@@ -485,23 +486,23 @@ static void files_draw(struct gui_window *w)
         if (f->list_view) {
             int y = TOOL_H + 4 + k * ROW_H;
             if (sel)
-                gfx_fill_round_rect(s, SIDE_W + 6, y, w->cw - SIDE_W - 20, ROW_H - 2, 6, t->sel);
-            gui_file_icon(s, SIDE_W + 14, y + 2, 18, (int)e->type, e->name);
-            gfx_text(s, SIDE_W + 42, y + 8, e->name, sel ? t->sel_text : t->text, GFX_TRANSPARENT, 1);
+                gfx_fill_round_rect(s, SIDE_W + 6, y, w->cw - SIDE_W - 20, ROW_H - 2, 6, hl);
+            gui_file_icon_sel(s, SIDE_W + 14, y + 2, 18, (int)e->type, e->name, sel);
+            gfx_text(s, SIDE_W + 42, y + 8, e->name, sel ? GFX_WHITE : t->text, GFX_TRANSPARENT, 1);
             if (e->type != VFS_DIR) {
                 char sz[16];
                 ksnprintf(sz, sizeof sz, "%u", e->size);
-                gfx_text(s, w->cw - 22 - gfx_text_width(sz, 1), y + 8, sz, sel ? t->sel_text : t->dim,
+                gfx_text(s, w->cw - 22 - gfx_text_width(sz, 1), y + 8, sz, sel ? GFX_WHITE : t->dim,
                          GFX_TRANSPARENT, 1);
             }
         } else {
             int col = k % c, row = k / c;
             int x = SIDE_W + 8 + col * CELL_W, y = TOOL_H + 6 + row * CELL_H;
             if (sel)
-                gfx_fill_round_rect(s, x + 2, y, CELL_W - 4, CELL_H - 4, 8, t->sel);
-            gui_file_icon(s, x + (CELL_W - 44) / 2, y + 6, 44, (int)e->type, e->name);
+                gfx_fill_round_rect(s, x + 2, y, CELL_W - 4, CELL_H - 4, 8, hl);
+            gui_file_icon_sel(s, x + (CELL_W - 44) / 2, y + 6, 44, (int)e->type, e->name, sel);
             short_name(e->name, nm, 10);
-            gfx_text(s, x + (CELL_W - gfx_text_width(nm, 1)) / 2, y + 58, nm, sel ? t->sel_text : t->text,
+            gfx_text(s, x + (CELL_W - gfx_text_width(nm, 1)) / 2, y + 58, nm, sel ? GFX_WHITE : t->text,
                      GFX_TRANSPARENT, 1);
         }
     }

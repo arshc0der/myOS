@@ -172,6 +172,8 @@ void gui_sidebar_row(struct gfx_surface *s, int x, int y, int w, const char *lab
 void gui_label_center(struct gfx_surface *s, int x, int y, int w, const char *text, uint32_t col);
 /* Icons: kind is VFS_DIR / VFS_FILE (see vfs.h); name picks a symbol from the extension. */
 void gui_file_icon(struct gfx_surface *s, int x, int y, int sz, int kind, const char *name);
+/* same, with `selected`: a selected folder is drawn white (for the coloured highlight) */
+void gui_file_icon_sel(struct gfx_surface *s, int x, int y, int sz, int kind, const char *name, bool selected);
 void gui_scrollbar(struct gfx_surface *s, int x, int y, int h, int total, int visible, int top);
 void gui_textfield(struct gfx_surface *s, int x, int y, int w, const char *text, bool focus);
 void gui_toolbar_button(struct gfx_surface *s, int x, int y, int w, int h, const char *label, bool enabled);
