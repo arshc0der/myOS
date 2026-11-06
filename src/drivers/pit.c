@@ -1,5 +1,6 @@
 /* pit.c - 8253/8254 programmable interval timer. */
 #include "timer.h"
+#include "hw.h"
 #include "isr.h"
 #include "io.h"
 #include "sched.h"
@@ -56,4 +57,44 @@ void speaker_beep(uint32_t hz, uint32_t ms)
     outb(0x61, inb(0x61) | 3);
     timer_sleep_ms(ms);
     outb(0x61, inb(0x61) & ~3);
+}
+
+/* High resolution time: the CPU time-stamp counter, calibrated against the 100 Hz timer on first use.
+ * Falls back to the 10 ms tick when the CPU has no TSC. Wraps after about 71 minutes: only subtract. */
+static uint64_t tsc_base;
+static uint32_t tsc_khz;
+static bool tsc_tried;
+
+static void tsc_calibrate(void)
+{
+    uint32_t d;
+    tsc_tried = true;
+    __asm__ volatile ("cpuid" : "=d"(d) : "a"(1) : "ebx", "ecx");
+    if (!(d & 16))
+        return;
+    uint32_t t = ticks;
+    while (ticks == t)                       /* wait for a tick edge */
+        __asm__ volatile ("pause");
+    uint64_t t0 = rdtsc();
+    t = ticks;
+    while ((uint32_t)(ticks - t) < 5)        /* 50 ms */
+        __asm__ volatile ("pause");
+    uint64_t t1 = rdtsc();
+    uint64_t khz = (t1 - t0) / 50;
+    if (khz > 100000 && khz < 10000000) {    /* 100 MHz .. 10 GHz is believable */
+        tsc_khz = (uint32_t)khz;
+        tsc_base = t1;
+    }
+}
+
+void timer_hires_init(void) { if (!tsc_tried) tsc_calibrate(); }
+bool timer_hires_ok(void) { return tsc_khz != 0; }
+
+uint32_t timer_us(void)
+{
+    if (!tsc_tried)
+        tsc_calibrate();
+    if (!tsc_khz)
+        return ticks * (1000000u / TIMER_HZ);
+    return (uint32_t)(((rdtsc() - tsc_base) * 1000u) / tsc_khz);
 }

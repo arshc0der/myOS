@@ -49,6 +49,7 @@ struct gui_prefs {
     bool dock_colorful;             /* coloured dock tiles             */
     int  dock_size;                 /* dock icon size in pixels (44, 52, 64) */
     bool show_fps;                  /* frame rate in the menu bar      */
+    bool perf;                      /* developer performance overlay    */
 };
 
 extern const struct gui_theme *gui_th;      /* colours of the current theme */

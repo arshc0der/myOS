@@ -346,7 +346,7 @@ const char *users_home(void)
 /* Preferences: time zone, location, refresh rate                      */
 /* ------------------------------------------------------------------ */
 
-struct sys_prefs sys_prefs = { .tz_minutes = 330, .city = "Kolkata", .refresh_hz = 60, .clock24 = true, .date_format = 0,
+struct sys_prefs sys_prefs = { .tz_minutes = 330, .city = "Kolkata", .refresh_hz = 0, .clock24 = true, .date_format = 0,
     .auto_time = true, .require_password = true, .auto_updates = false, .check_updates = true, .open_terminal = true,
     .volume = 60, .hostname = "myos" };
 
@@ -360,7 +360,7 @@ int sys_country_count(void) { return 10; }
 
 void sys_prefs_defaults(void)
 {
-    struct sys_prefs d = { .tz_minutes = 330, .refresh_hz = 60, .clock24 = true, .auto_time = true, .require_password = true,
+    struct sys_prefs d = { .tz_minutes = 330, .refresh_hz = 0, .clock24 = true, .auto_time = true, .require_password = true,
                            .check_updates = true, .open_terminal = true, .volume = 60 };
     strlcpy(d.city, "Kolkata", sizeof d.city);
     strlcpy(d.hostname, "myos", sizeof d.hostname);

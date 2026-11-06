@@ -8,6 +8,8 @@
  * into slow display memory.
  */
 #include "gfx.h"
+#include "display.h"
+#include "timer.h"
 #include "multiboot.h"
 #include "pmm.h"
 #include "vmm.h"
@@ -160,6 +162,12 @@ static void shadow_prepare(void)
     shadow_ok = false;
 }
 
+void gfx_fb_info(int *bpp, int *pitch)
+{
+    *bpp = fb_bpp;
+    *pitch = (int)fb_pitch;
+}
+
 void gfx_flush(int x, int y, int w, int h)
 {
     if (!ready)
@@ -183,6 +191,8 @@ void gfx_flush(int x, int y, int w, int h)
         }
         if (sh)
             memcpy(sh + a, src + a, (size_t)(b - a) * 4);
+        gfx_stats.dirty_rows++;
+        gfx_stats.pixels += (uint32_t)(b - a);
         uint8_t *dst = fb + (size_t)j * fb_pitch + (size_t)(x0 + a) * (fb_bpp / 8);
         src += a;
         n = b - a;

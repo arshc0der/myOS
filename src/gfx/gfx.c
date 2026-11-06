@@ -1,5 +1,6 @@
 /* gfx.c - drawing primitives on 32-bit surfaces. */
 #include "gfx.h"
+#include "uifont.h"
 #include "heap.h"
 #include "pmm.h"
 #include "kstring.h"
@@ -58,6 +59,11 @@ uint32_t gfx_get_pixel(const struct gfx_surface *s, int x, int y)
     return s->px[y * s->stride + x];
 }
 
+static inline void fill32(uint32_t *d, uint32_t c, size_t n)
+{
+    __asm__ volatile ("cld; rep stosl" : "+D"(d), "+c"(n) : "a"(c) : "memory");
+}
+
 void gfx_fill_rect(struct gfx_surface *s, int x, int y, int w, int h, uint32_t c)
 {
     int x0 = MAX(x, 0), y0 = MAX(y, 0);
@@ -65,11 +71,8 @@ void gfx_fill_rect(struct gfx_surface *s, int x, int y, int w, int h, uint32_t c
 
     if (x0 >= x1 || y0 >= y1)
         return;
-    for (int j = y0; j < y1; j++) {
-        uint32_t *row = &s->px[j * s->stride + x0];
-        for (int i = 0; i < x1 - x0; i++)
-            row[i] = c;
-    }
+    for (int j = y0; j < y1; j++)
+        fill32(&s->px[j * s->stride + x0], c, (size_t)(x1 - x0));
 }
 
 void gfx_hline(struct gfx_surface *s, int x, int y, int w, uint32_t c)
@@ -108,19 +111,42 @@ void gfx_line(struct gfx_surface *s, int x0, int y0, int x1, int y1, uint32_t c)
     }
 }
 
+/* coverage (0..255) of one corner pixel: D = 4 * (distance from the corner centre)^2, r = radius.
+ * distance to the edge ~ (r^2 - d^2) / 2r, which is accurate within a pixel of the edge. */
+static inline int edge_cov(int D, int r)
+{
+    int c = ((4 * r * r - D) * 32) / r + 128;
+    return c < 0 ? 0 : c > 255 ? 255 : c;
+}
+
+static inline void put_cov(struct gfx_surface *s, int x, int y, uint32_t c, int cov)
+{
+    if (x < 0 || y < 0 || x >= s->w || y >= s->h || cov <= 0)
+        return;
+    uint32_t *p = &s->px[y * s->stride + x];
+    *p = cov >= 255 ? c : gfx_blend(*p, c, cov);
+}
+
 void gfx_fill_circle(struct gfx_surface *s, int cx, int cy, int r, uint32_t c)
 {
-    for (int y = -r; y <= r; y++) {
-        int w = 0;
-        while (w * w + y * y <= r * r + r)
-            w++;
-        w--;
-        gfx_hline(s, cx - w, cy + y, 2 * w + 1, c);
+    if (r <= 0) {
+        gfx_pixel(s, cx, cy, c);
+        return;
     }
+    for (int y = -r - 1; y <= r + 1; y++)
+        for (int x = -r - 1; x <= r + 1; x++) {
+            int cov = edge_cov(4 * (x * x + y * y), r) ;
+            /* the circle is centred on a pixel, so shift the edge half a pixel outward */
+            cov = MIN(255, cov + 64);
+            if (cov > 0 && (x * x + y * y) <= (r + 1) * (r + 1))
+                put_cov(s, cx + x, cy + y, c, cov);
+        }
 }
 
 void gfx_fill_round_rect(struct gfx_surface *s, int x, int y, int w, int h, int r, uint32_t c)
 {
+    if (w <= 0 || h <= 0)
+        return;
     if (r * 2 > w) r = w / 2;
     if (r * 2 > h) r = h / 2;
     if (r <= 0) {
@@ -130,28 +156,31 @@ void gfx_fill_round_rect(struct gfx_surface *s, int x, int y, int w, int h, int 
     gfx_fill_rect(s, x + r, y, w - 2 * r, h, c);
     gfx_fill_rect(s, x, y + r, r, h - 2 * r, c);
     gfx_fill_rect(s, x + w - r, y + r, r, h - 2 * r, c);
-    /* four corners */
+    /* four anti-aliased corners */
     for (int j = 0; j < r; j++) {
-        int dy = r - 1 - j;
-        int ww = 0;
-        while ((ww + 1) * (ww + 1) + dy * dy <= r * r)
-            ww++;
-        int inset = r - ww;
-        gfx_hline(s, x + inset, y + j, r - inset, c);
-        gfx_hline(s, x + w - r, y + j, r - inset, c);
-        gfx_hline(s, x + inset, y + h - 1 - j, r - inset, c);
-        gfx_hline(s, x + w - r, y + h - 1 - j, r - inset, c);
+        int dy = 2 * r - 2 * j - 1;
+        for (int i = 0; i < r; i++) {
+            int dx = 2 * r - 2 * i - 1;
+            int cov = edge_cov(dx * dx + dy * dy, r);
+            if (cov <= 0)
+                continue;
+            put_cov(s, x + i, y + j, c, cov);
+            put_cov(s, x + w - 1 - i, y + j, c, cov);
+            put_cov(s, x + i, y + h - 1 - j, c, cov);
+            put_cov(s, x + w - 1 - i, y + h - 1 - j, c, cov);
+        }
     }
 }
 
+/* Integer blend of two 0x00RRGGBB colours: red+blue and green are computed together (no divisions). */
 uint32_t gfx_blend(uint32_t under, uint32_t over, int a)
 {
-    int ur = (under >> 16) & 255, ug = (under >> 8) & 255, ub = under & 255;
-    int or_ = (over >> 16) & 255, og = (over >> 8) & 255, ob = over & 255;
-
-    return GFX_RGB((or_ * a + ur * (255 - a)) / 255,
-                   (og * a + ug * (255 - a)) / 255,
-                   (ob * a + ub * (255 - a)) / 255);
+    if (a <= 0) return under;
+    if (a >= 255) return over;
+    uint32_t ia = (uint32_t)a + ((uint32_t)a >> 7);             /* 0..256 */
+    uint32_t rb = (((over & 0xFF00FFu) * ia + (under & 0xFF00FFu) * (256 - ia)) >> 8) & 0xFF00FFu;
+    uint32_t g = (((over & 0x00FF00u) * ia + (under & 0x00FF00u) * (256 - ia)) >> 8) & 0x00FF00u;
+    return rb | g;
 }
 
 void gfx_fill_rect_alpha(struct gfx_surface *s, int x, int y, int w, int h,
@@ -160,11 +189,21 @@ void gfx_fill_rect_alpha(struct gfx_surface *s, int x, int y, int w, int h,
     int x0 = MAX(x, 0), y0 = MAX(y, 0);
     int x1 = MIN(x + w, s->w), y1 = MIN(y + h, s->h);
 
-    for (int j = y0; j < y1; j++)
+    if (alpha <= 0)
+        return;
+    if (alpha >= 255) {
+        gfx_fill_rect(s, x, y, w, h, c);
+        return;
+    }
+    uint32_t ia = (uint32_t)alpha + ((uint32_t)alpha >> 7), inv = 256 - ia;
+    uint32_t crb = (c & 0xFF00FFu) * ia, cg = (c & 0x00FF00u) * ia;
+    for (int j = y0; j < y1; j++) {
+        uint32_t *row = &s->px[j * s->stride];
         for (int i = x0; i < x1; i++) {
-            uint32_t *p = &s->px[j * s->stride + i];
-            *p = gfx_blend(*p, c, alpha);
+            uint32_t u = row[i];
+            row[i] = ((((u & 0xFF00FFu) * inv + crb) >> 8) & 0xFF00FFu) | ((((u & 0x00FF00u) * inv + cg) >> 8) & 0x00FF00u);
         }
+    }
 }
 
 void gfx_gradient_v(struct gfx_surface *s, int x, int y, int w, int h,
@@ -193,7 +232,7 @@ void gfx_blit(struct gfx_surface *dst, int dx, int dy,
         return;
     for (int j = 0; j < h; j++)
         memmove(&dst->px[(dy + j) * dst->stride + dx],
-                &src->px[(sy + j) * src->stride + sx], (size_t)w * 4);
+                &src->px[(sy + j) * src->stride + sx], (size_t)w * 4);          /* word copy when rows do not overlap */
 }
 
 /* ---------------- text ---------------- */
@@ -230,19 +269,37 @@ void gfx_char_tall(struct gfx_surface *s, int x, int y, char ch, uint32_t fg, ui
     }
 }
 
+/* All proportional UI text goes through myFont. `scale` keeps its old meaning (1 = body text, 2 = headline ...). */
+static void text_style(int scale, int *px, int *weight, int *top)
+{
+    switch (scale < 1 ? 1 : scale) {
+    case 1:  *px = 14; *weight = UI_REGULAR; *top = 0;  break;
+    case 2:  *px = 20; *weight = UI_SEMIBOLD; *top = 0; break;
+    case 3:  *px = 24; *weight = UI_BOLD; *top = 0;     break;
+    default: *px = 32; *weight = UI_BOLD; *top = 0;     break;
+    }
+}
+
 void gfx_text(struct gfx_surface *s, int x, int y, const char *str, uint32_t fg,
               uint32_t bg, int scale)
 {
-    for (; *str; str++, x += 8 * scale) {
-        if (*str == '\n')
-            continue;
-        gfx_char(s, x, y, *str, fg, bg, scale);
-    }
+    int px, wt, top;
+    text_style(scale, &px, &wt, &top);
+    if (bg != GFX_TRANSPARENT)
+        gfx_fill_rect(s, x, y - 2, ui_text_width(str, px, wt), 8 * (scale < 1 ? 1 : scale) + 4, bg);
+    /* centre the glyphs vertically in the old 8 * scale pixel cell */
+    int cell = 8 * (scale < 1 ? 1 : scale);
+    int asc = ui_text_ascent(px, wt);
+    int base = y + (cell + asc * 7 / 10) / 2 + 1;       /* cap height is about 70% of the ascent */
+    (void)top;
+    ui_text(s, x, base - asc, str, fg, px, wt);
 }
 
 int gfx_text_width(const char *str, int scale)
 {
-    return (int)strlen(str) * 8 * scale;
+    int px, wt, top;
+    text_style(scale, &px, &wt, &top);
+    return ui_text_width(str, px, wt);
 }
 
 /* ---------------- logo ---------------- */

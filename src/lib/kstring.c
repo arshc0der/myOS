@@ -1,12 +1,18 @@
 /* kstring.c - string and memory functions. */
 #include "kstring.h"
 
+/* Forward copy: whole 32-bit words with "rep movsl", then the 0-3 remaining bytes. */
+static inline void copy_fwd(void *dst, const void *src, size_t n)
+{
+    size_t q = n >> 2, r = n & 3;
+    __asm__ volatile ("cld; rep movsl" : "+D"(dst), "+S"(src), "+c"(q) : : "memory");
+    __asm__ volatile ("rep movsb" : "+D"(dst), "+S"(src), "+c"(r) : : "memory");
+}
+
 void *memcpy(void *dst, const void *src, size_t n)
 {
-    void *ret = dst;
-    __asm__ volatile ("cld; rep movsb"
-                      : "+D"(dst), "+S"(src), "+c"(n) : : "memory");
-    return ret;
+    copy_fwd(dst, src, n);
+    return dst;
 }
 
 void *memmove(void *dst, const void *src, size_t n)
@@ -16,23 +22,28 @@ void *memmove(void *dst, const void *src, size_t n)
 
     if (d == s || n == 0)
         return dst;
-    if (d < s) {
-        while (n--)
-            *d++ = *s++;
-    } else {
-        d += n;
-        s += n;
-        while (n--)
-            *--d = *--s;
+    if (d < s || d >= s + n) {                 /* no harmful overlap: fast forward copy */
+        copy_fwd(dst, src, n);
+        return dst;
     }
+    d += n;                                    /* overlapping, copy from the end */
+    s += n;
+    while (n >= 4) {
+        d -= 4; s -= 4; n -= 4;
+        *(uint32_t *)d = *(const uint32_t *)s;
+    }
+    while (n--)
+        *--d = *--s;
     return dst;
 }
 
 void *memset(void *dst, int c, size_t n)
 {
     void *ret = dst;
-    __asm__ volatile ("cld; rep stosb"
-                      : "+D"(dst), "+c"(n) : "a"(c) : "memory");
+    uint32_t w = (uint32_t)(uint8_t)c * 0x01010101u;
+    size_t q = n >> 2, r = n & 3;
+    __asm__ volatile ("cld; rep stosl" : "+D"(dst), "+c"(q) : "a"(w) : "memory");
+    __asm__ volatile ("rep stosb" : "+D"(dst), "+c"(r) : "a"(c) : "memory");
     return ret;
 }
 

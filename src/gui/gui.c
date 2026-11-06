@@ -9,6 +9,8 @@
  */
 #include "gui.h"
 #include "guiapi.h"
+#include "display.h"
+#include "pmm.h"
 #include "sys.h"
 #include "image.h"
 #include "net.h"
@@ -52,6 +54,9 @@ static void win_resize(struct gui_window *w, int cw, int ch);
 static int mx, my;
 static uint8_t mbuttons;
 static bool running, animating, need_redraw;
+/* animation clock: milliseconds from the CPU time-stamp counter (the 100 Hz tick would make motion step in 10 ms jumps) */
+static uint32_t anim_now(void) { return timer_us() / 1000; }
+static int gdt_ms = 16;                         /* time since the previous frame, for delta-time animation */
 static bool ptr_mode;
 
 /* menus */
@@ -190,7 +195,7 @@ struct gui_window *gui_open(const struct gui_app *app)
     w->app = app;
     w->cw = cw;
     w->ch = ch;
-    w->born = timer_ticks();
+    w->born = anim_now();
     strlcpy(w->title, app->title ? app->title : app->name, sizeof w->title);
     int off = (nz % 6) * 26;
     w->x = MAX(10, (sw - outer_w(w)) / 2 - 60 + off);
@@ -371,12 +376,12 @@ static void launch(const struct gui_app *a)
     if (gui_prefs.anim)
         for (int i = 0; i < ndock; i++)
             if (apps[dock_idx[i]] == a)
-                dock_bounce[i] = timer_ticks() | 1;
+                dock_bounce[i] = anim_now() | 1;
     for (int i = 0; i < MAX_WINDOWS; i++)
         if (wins[i].used && wins[i].app == a && wins[i].minimized && !wins[i].want_close) {
             wins[i].minimized = false;                 /* bring a hidden window back */
             bring_to_front(i);
-            wins[i].born = timer_ticks();
+            wins[i].born = anim_now();
             gui_redraw();
             return;
         }
@@ -463,7 +468,7 @@ static void draw_app_icon(struct gfx_surface *s, const struct gui_app *a, int x,
 static void draw_dock(struct gfx_surface *s)
 {
     int x, y, w, h;
-    uint32_t now = timer_ticks();
+    uint32_t now = anim_now();
 
     if (!ndock)
         return;
@@ -482,16 +487,16 @@ static void draw_dock(struct gfx_surface *s)
         if (!gui_prefs.anim)
             dock_sc[i] = target;
         else if (dock_sc[i] != target) {
-            int diff = target - dock_sc[i], step = diff / 2;
+            int diff = target - dock_sc[i], step = diff * MIN(gdt_ms, 50) / 70;     /* delta-time ease-out */
             dock_sc[i] += step ? step : (diff > 0 ? 1 : -1);
             animating = true;
         }
         int sz = DOCK_ICON + dock_sc[i];
         int dx = ix - (sz - DOCK_ICON) / 2, dy = y + 7 - dock_sc[i];
         if (dock_bounce[i]) {
-            int dt = (int)((now - dock_bounce[i]) / 2);
-            if (dt < 16) {
-                dy -= dt < 8 ? dt * 2 : (16 - dt) * 2;
+            int dt = (int)(now - dock_bounce[i]);                           /* milliseconds */
+            if (dt < 520) {
+                dy -= 4 * 18 * dt * (520 - dt) / (520 * 520);               /* one smooth hop, 18 px high */
                 animating = true;
             } else
                 dock_bounce[i] = 0;
@@ -524,10 +529,10 @@ static void draw_window(struct gfx_surface *s, struct gui_window *w, bool active
         return;
     }
     if (gui_prefs.anim && !w->maximized) {                               /* open animation: slide up, 200 ms */
-        int t = (int)(timer_ticks() - w->born);
-        if (t < 20) {
-            int rem = 20 - t;
-            w->y += 30 * rem * rem / 400;
+        int t = (int)(anim_now() - w->born);                         /* milliseconds */
+        if (t < 240) {
+            int rem = 240 - t;                                      /* ease-out cubic: fast start, soft landing */
+            w->y += 36 * rem * rem * rem / (240 * 240 * 240 / 1);
             animating = true;
         }
     }
@@ -1389,12 +1394,38 @@ static void draw_reader(struct gfx_surface *s)
     gfx_text(s, x + 20, y + 9, line, GFX_RGB(255, 255, 255), GFX_TRANSPARENT, 2);
 }
 
+
+/* Developer overlay (Settings > Display): every number comes from gfx_stats / display_get(), nothing is invented. */
+static void draw_perf_overlay(struct gfx_surface *s)
+{
+    if (!gui_prefs.perf)
+        return;
+    const struct display_info *di = display_get();
+    char l[7][48];
+    int w = 236, h = 7 * 16 + 14, x = sw - w - 14, y = MENUBAR_H + 10;
+
+    ksnprintf(l[0], 48, "FPS %u  avg %u  target %u", gfx_stats.fps, gfx_stats.fps_avg, gfx_stats.target_fps);
+    ksnprintf(l[1], 48, "Frame %u.%u ms  missed %u", gfx_stats.frame_us / 1000, gfx_stats.frame_us / 100 % 10, gfx_stats.missed);
+    ksnprintf(l[2], 48, "Render %u us  present %u us", gfx_stats.render_us, gfx_stats.present_us);
+    ksnprintf(l[3], 48, "Dirty rows %u  pixels %u", gfx_stats.dirty_rows, gfx_stats.pixels);
+    if (di->refresh_hz)
+        ksnprintf(l[4], 48, "Display %d Hz (%s)", di->refresh_hz, "measured");
+    else
+        ksnprintf(l[4], 48, "Display refresh: unknown");
+    ksnprintf(l[5], 48, "VSync: %s", di->vsync ? "hardware retrace" : "timer pacing");
+    ksnprintf(l[6], 48, "Memory free %u MB", pmm_free_pages_count() / 256);
+    gfx_fill_round_rect(s, x, y, w, h, 10, GFX_RGB(16, 16, 18));
+    for (int i = 0; i < 7; i++)
+        gfx_text(s, x + 12, y + 8 + i * 16, l[i], GFX_RGB(235, 235, 240), GFX_TRANSPARENT, 1);
+}
+
 static int fps_count, fps_last;
 int gui_fps(void) { return fps_last; }
 
 static void render(void)
 {
     struct gfx_surface *s = gfx_screen();
+    uint32_t render_t0 = timer_us();
 
     animating = false;
     if (wallpaper)
@@ -1417,9 +1448,17 @@ static void render(void)
         draw_dialog(s);
     draw_reader(s);
     draw_magnifier(s);
+    draw_perf_overlay(s);
     cur_on = false;
     cursor_paint(s);
+    uint32_t tp = timer_us();
+    gfx_stats.render_us = tp - render_t0;
+    if (animating)
+        display_wait_vsync(25000);                      /* only when the hardware really has a retrace signal */
+    gfx_stats.dirty_rows = 0;
+    gfx_stats.pixels = 0;
     gfx_flush_all();
+    gfx_stats.present_us = timer_us() - tp;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1798,6 +1837,7 @@ void gui_run(void)
     gui_splash();
     build_wallpaper();
     input_flush();
+    display_probe();
     gui_login();
     input_flush();
 
@@ -1820,13 +1860,34 @@ void gui_run(void)
     if (boot_has_arg("guitest"))
         task_create("guitest", guitest_task, NULL);
 
-    uint32_t last_sec = ~0u;
+    uint32_t last_sec = ~0u, frame_start = timer_us();
+    bool was_anim = false;
+    static uint32_t fps_hist[10];
     while (running) {
         struct input_event ev;
         bool redraw = need_redraw;
-        int frame_ms = 1000 / MAX(20, MIN(100, sys_prefs.refresh_hz));
-        frame_ms = MAX(10, frame_ms / 10 * 10);
-        int r = input_wait(&ev, animating ? frame_ms : 100);
+        int target = display_effective_fps();
+        uint32_t budget = 1000000u / (uint32_t)target;
+        int r;
+
+        gfx_stats.target_fps = (uint32_t)target;
+        if (animating) {
+            /* Frame pacing: sleep (coarse, 10 ms tick) while there is plenty of time, then poll input until the
+             * frame deadline. The 100 Hz timer is too coarse to end the wait exactly, so the last <12 ms is polled. */
+            uint32_t el = timer_us() - frame_start;
+            r = input_poll(&ev) ? 0 : -1;
+            if (r != 0 && el < budget) {
+                uint32_t rem = budget - el;
+                if (rem > 14000)
+                    r = input_wait(&ev, (rem - 12000) / 1000);
+                while (r != 0 && (uint32_t)(timer_us() - frame_start) < budget) {
+                    r = input_poll(&ev) ? 0 : -1;
+                    if (r != 0)
+                        __asm__ volatile ("pause");
+                }
+            }
+        } else
+            r = input_wait(&ev, 100);
 
         need_redraw = false;
         bool only_move = true, got_event = false, cursor_only = false;
@@ -1862,18 +1923,35 @@ void gui_run(void)
         if (sec != last_sec) {
             last_sec = sec;
             fps_last = fps_count;
+            fps_hist[sec % 10] = (uint32_t)fps_count;
+            {
+                uint32_t sum = 0;
+                for (int i = 0; i < 10; i++) sum += fps_hist[i];
+                gfx_stats.fps_avg = sum / 10;
+            }
+            gfx_stats.fps = (uint32_t)fps_count;
             fps_count = 0;
             redraw = true;
         }
         if (animating || need_redraw)
             redraw = true;
         if (redraw) {
+            uint32_t t0 = timer_us();
             need_redraw = false;
             fps_count++;
+            gfx_stats.frames++;
+            gfx_stats.frame_us = t0 - frame_start;
+            gdt_ms = (int)MAX(1, MIN(50, (int)(gfx_stats.frame_us / 1000)));
+            if (was_anim && gfx_stats.frame_us > budget * 3 / 2)
+                gfx_stats.missed++;
+            frame_start = t0;
             render();
+            was_anim = animating;
         } else if (cursor_only) {
             cursor_move_only();
         }
+        if (!redraw)
+            was_anim = false;
     }
 
     if (boot_has_arg("guitest"))

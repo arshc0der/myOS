@@ -19,6 +19,7 @@
  * clickable rectangles with hit(); the loop then maps a click or key to an action.
  */
 #include "guiapi.h"
+#include "display.h"
 #include "sys.h"
 #include "input.h"
 #include "timer.h"
@@ -327,7 +328,13 @@ static void build_post(void)
     post_add("Pointer", mouse_present() ? 0 : 1, "");
     ksnprintf(post[npost - 1].val, sizeof post[0].val, mouse_present() ? "Mouse or touchpad ready" : "No mouse found: use the keyboard (Tab, Enter, arrows)");
     post_add("Display", 0, "");
-    ksnprintf(post[npost - 1].val, sizeof post[0].val, "%d x %d pixels, %d Hz", gfx_width(), gfx_height(), sys_prefs.refresh_hz);
+    {
+        const struct display_info *di = display_get();
+        if (di->refresh_hz)
+            ksnprintf(post[npost - 1].val, sizeof post[0].val, "%d x %d, %d bpp, refresh %d Hz (measured)", gfx_width(), gfx_height(), di->bpp, di->refresh_hz);
+        else
+            ksnprintf(post[npost - 1].val, sizeof post[0].val, "%d x %d, %d bpp, refresh rate unknown", gfx_width(), gfx_height(), di->bpp);
+    }
     post_add("Devices", 0, "");
     ksnprintf(post[npost - 1].val, sizeof post[0].val, "%d PCI devices, %d USB controller%s", npci, usbc, usbc == 1 ? "" : "s");
     {

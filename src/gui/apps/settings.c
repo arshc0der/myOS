@@ -12,6 +12,7 @@
 #include "kstring.h"
 #include "kerror.h"
 #include "hw.h"
+#include "display.h"
 #include "version.h"
 #include "pmm.h"
 #include "heap.h"
@@ -206,7 +207,7 @@ static void settings_draw(struct gui_window *w)
     }
     case P_DISP: {
         int nm = gui_mode_count();
-        const char *hz[] = { "30 Hz", "60 Hz", "100 Hz" }, *fp[] = { "Off", "On" };
+        const char *hz[] = { "Auto", "30", "60", "90", "120" }, *fp[] = { "Off", "On" };
         ksnprintf(line, sizeof line, "%d x %d pixels", gui_screen_w(), gui_screen_h());
         heading(s, 54, "Resolution");
         gfx_text(s, X0, 70, line, gui_th->text, GFX_TRANSPARENT, 2);
@@ -228,10 +229,24 @@ static void settings_draw(struct gui_window *w)
             heading(s, 238, "Colour order (use if colours look wrong)");
             gui_segment(s, X0, 254, SEGW, f, 3, gui_prefs.pixfmt);
         }
-        heading(s, 292, "Refresh rate (desktop frames per second)");
-        gui_segment(s, X0, 308, SEGW, hz, 3, sys_prefs.refresh_hz <= 30 ? 0 : sys_prefs.refresh_hz >= 100 ? 2 : 1);
+        heading(s, 292, "Target frame rate (frames per second)");
+        gui_segment(s, X0, 308, SEGW, hz, 5, sys_prefs.refresh_hz == 0 ? 0 : sys_prefs.refresh_hz <= 30 ? 1 : sys_prefs.refresh_hz <= 60 ? 2 : sys_prefs.refresh_hz <= 90 ? 3 : 4);
         heading(s, 346, "Show frame rate in the menu bar");
         gui_segment(s, X0, 362, SEGW, fp, 2, gui_prefs.show_fps ? 1 : 0);
+        heading(s, 396, "Performance overlay (developer)");
+        gui_segment(s, X0, 412, SEGW, fp, 2, gui_prefs.perf ? 1 : 0);
+        {
+            const struct display_info *di = display_get();
+            char l[80];
+            if (di->refresh_hz)
+                ksnprintf(l, sizeof l, "Monitor: %d Hz, %s. Target %d FPS.", di->refresh_hz, di->refresh_src, display_effective_fps());
+            else
+                ksnprintf(l, sizeof l, "Monitor refresh: unknown. Target %d FPS.", display_effective_fps());
+            note(s, 450, l);
+            ksnprintf(l, sizeof l, "Measured %u FPS. Sync: %s.", gfx_stats.fps, di->vsync ? "hardware retrace" : "timer pacing");
+            note(s, 466, l);
+            note(s, 482, di->refresh_hz ? "Targets above the monitor rate are ignored." : "No signal to read the rate: Auto uses 60.");
+        }
         break;
     }
     case P_TIME: {
@@ -473,7 +488,10 @@ static void settings_draw(struct gui_window *w)
         ksnprintf(l, sizeof l, "Kernel heap: %u KB used of %u KB, %u allocations", hs.used_bytes / 1024, hs.total_bytes / 1024, hs.alloc_count);
         gfx_text(s, X0, 134, l, gui_th->dim, GFX_TRANSPARENT, 1);
         heading(s, 164, "Display");
-        ksnprintf(l, sizeof l, "%d x %d, %d Hz", gui_screen_w(), gui_screen_h(), sys_prefs.refresh_hz);
+        if (display_get()->refresh_hz)
+            ksnprintf(l, sizeof l, "%d x %d, %d Hz (measured)", gui_screen_w(), gui_screen_h(), display_get()->refresh_hz);
+        else
+            ksnprintf(l, sizeof l, "%d x %d, refresh rate unknown", gui_screen_w(), gui_screen_h());
         gfx_text(s, X0, 180, l, gui_th->text, GFX_TRANSPARENT, 1);
         heading(s, 210, "Devices");
         ksnprintf(l, sizeof l, "%d PCI devices, %d disks, %d network adapters", pci_scan(pd, 64), blockdev_count(), net_probe());
@@ -546,9 +564,14 @@ static void settings_click(struct gui_window *w, int x, int y, int buttons)
         if ((i = seg_hit(x, y, 254, 3)) >= 0) {
             gui_prefs.pixfmt = i;
             gfx_set_pixel_format(i);
-        } else if ((i = seg_hit(x, y, 308, 3)) >= 0) {
-            sys_prefs.refresh_hz = i == 0 ? 30 : i == 1 ? 60 : 100;
-            sys_prefs_save();
+        } else if ((i = seg_hit(x, y, 308, 5)) >= 0) {
+            static const int tf[5] = { 0, 30, 60, 90, 120 };
+            if (!display_get()->refresh_hz || tf[i] <= display_get()->refresh_hz) {   /* only what the display can show */
+                sys_prefs.refresh_hz = tf[i];
+                sys_prefs_save();
+            }
+        } else if ((i = seg_hit(x, y, 412, 2)) >= 0) {
+            gui_prefs.perf = i == 1;
         } else if ((i = seg_hit(x, y, 362, 2)) >= 0) {
             gui_prefs.show_fps = i == 1;
         } else if (y >= 100 && x >= X0) {

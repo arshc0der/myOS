@@ -13,6 +13,9 @@ uint32_t timer_ms(void);                    /* milliseconds since boot     */
 uint32_t timer_uptime_sec(void);
 /* Sleep (interrupts must be on). Inside a thread this lets others run. */
 void     timer_sleep_ms(uint32_t ms);
+uint32_t  timer_us(void);               /* microseconds (TSC); only subtract two values */
+void     timer_hires_init(void);
+bool     timer_hires_ok(void);
 void     speaker_beep(uint32_t hz, uint32_t ms);    /* PC speaker; honours the Sound settings */
 /* Called on every tick from the interrupt handler (used by the scheduler). */
 void     timer_set_hook(void (*fn)(void));
