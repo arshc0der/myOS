@@ -1,5 +1,6 @@
 /* tgrid.c - text grid with scrollback. */
 #include "tgrid.h"
+#include "uifont.h"
 #include "heap.h"
 #include "kstring.h"
 
@@ -158,6 +159,8 @@ const struct tcell *tg_cell(const struct tgrid *tg, int row, int col)
     return &tg->cells[(ring % tg->lines) * tg->cols + col];
 }
 
+bool tg_mono_font;                  /* draw with myFont Mono instead of the 8x8 bitmap font (set by the Terminal app) */
+
 void tg_render(struct tgrid *tg, struct gfx_surface *s, int ox, int oy,
                int cell_h, bool only_dirty, int *first, int *last)
 {
@@ -177,7 +180,11 @@ void tg_render(struct tgrid *tg, struct gfx_surface *s, int ox, int oy,
                 bg = (c->attr >> 4) ? tg_color(c->attr >> 4) : GFX_RGB(255, 255, 255);
             }
             int px = ox + x * 8, py = oy + y * cell_h;
-            if (cell_h == 16)
+            if (cell_h == 16 && tg_mono_font && c->ch >= 32 && c->ch < 127) {
+                gfx_fill_rect(s, px, py, 8, 16, bg);
+                if (c->ch != ' ')
+                    ui_mono_char(s, px, py, (char)c->ch, fg, (c->attr & 8) != 0);
+            } else if (cell_h == 16)
                 gfx_char_tall(s, px, py, (char)c->ch, fg, bg);
             else
                 gfx_char(s, px, py, (char)c->ch, fg, bg, 1);

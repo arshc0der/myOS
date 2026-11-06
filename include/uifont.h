@@ -13,4 +13,6 @@ int  ui_text_width(const char *utf8, int px, int weight);
 int  ui_text_height(int px, int weight);                /* line height */
 int  ui_text_ascent(int px, int weight);
 void ui_font_init(void);
+/* One character in an 8 x 16 monospace cell (myFont Mono 14 px: 8 px advance, 15 px line). Terminal, Notepad. */
+void ui_mono_char(struct gfx_surface *s, int x, int y, char ch, uint32_t fg, bool bold);
 #endif

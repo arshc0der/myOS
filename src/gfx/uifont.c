@@ -77,3 +77,9 @@ int ui_text(struct gfx_surface *s, int x, int y, const char *t, uint32_t rgb, in
     int idx = myfont_size_index(f, px);
     return myfont_draw_text(&ms, f, idx, x, y + myfont_ascent(f, idx), rgb, t);
 }
+
+void ui_mono_char(struct gfx_surface *s, int x, int y, char ch, uint32_t fg, bool bold)
+{
+    char t[2] = { ch, 0 };
+    ui_text(s, x, y + 1, t, fg, 14, bold ? UI_MONO_BOLD : UI_MONO);
+}

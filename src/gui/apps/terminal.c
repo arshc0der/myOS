@@ -150,7 +150,9 @@ static void term_draw(struct gui_window *w)
     if (!t)
         return;
     preempt_disable();
+    tg_mono_font = true;
     tg_render(&t->tg, w->surf, 0, 0, 16, false, &f, &l);
+    tg_mono_font = false;
     preempt_enable();
     gfx_fill_rect(w->surf, t->tg.cols * 8, 0, w->cw - t->tg.cols * 8, w->ch,
                   tg_light_mode ? GFX_WHITE : GFX_BLACK);

@@ -30,7 +30,7 @@ Compiled only. Nothing here was run or measured; no before/after numbers exist. 
   GRUB. Not implemented; refresh is measured or unknown.
 - **SIMD**: not enabled (kernel is built with -mno-sse and does not save FPU/SSE state on task switches).
 - **Write-combining frame buffer (PAT)**: not enabled; the frame buffer is still mapped uncached.
-- **Terminal and Notepad** still use the 8x16 bitmap grid font (fixed cells). myFont Mono needs fractional cell widths.
+- Terminal and Notepad now use myFont Mono (14 px, 8 x 16 cells; bright colours use Mono Bold). Characters outside printable ASCII still use the 8x16 bitmap font. The boot text console (before the desktop) is unchanged.
 - Text scale above 4 (for example the 48 px welcome greeting) is capped at 32 px.
 - No Devanagari glyphs in myFont yet; Hindi is written in Latin letters.
 - Font licence is not chosen yet (see docs/fonts/myFont-README.md).

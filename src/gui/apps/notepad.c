@@ -1,5 +1,6 @@
 /* notepad.c - a small text editor. Ctrl+S saves. */
 #include "guiapi.h"
+#include "uifont.h"
 #include "input.h"
 #include "vfs.h"
 #include "heap.h"
@@ -182,7 +183,13 @@ static void notepad_draw(struct gui_window *w)
     for (int r = 0; r < rows && st <= n->len; r++) {
         int len = line_len(n, st);
         for (int c = 0; c < len && c < cols; c++)
-            gfx_char_tall(s, 6 + c * 8, 4 + r * 16, n->text[st + c], gui_th->text, GFX_TRANSPARENT);
+        {
+            char ch = n->text[st + c];
+            if (ch >= 33 && ch < 127)
+                ui_mono_char(s, 6 + c * 8, 4 + r * 16, ch, gui_th->text, false);
+            else if (ch != ' ')
+                gfx_char_tall(s, 6 + c * 8, 4 + r * 16, ch, gui_th->text, GFX_TRANSPARENT);
+        }
         if (n->top_line + r == line && col <= cols)
             gfx_fill_rect(s, 6 + col * 8, 4 + r * 16, 2, 16, gui_th->accent);
         st += len + 1;
