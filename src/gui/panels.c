@@ -238,7 +238,7 @@ static void draw_control(void)
     int pad = 14, cw = (CCW - pad * 3) / 2, x1 = pad, x2 = pad * 2 + cw, y = pad;
     bool air = sys_prefs.airplane;
 
-    ksnprintf(b, sizeof b, "%s", wifi_count() ? (air ? "Off (Airplane)" : sys_prefs.wifi_on ? "On" : "Off") : "No driver");
+    ksnprintf(b, sizeof b, "%s", wifi_count() ? (air ? "Off (Airplane)" : sys_prefs.wifi_on ? "On" : "Off") : wifi_hw_count() ? "Found, no driver" : "No adapter");
     tile(x1, y, cw, 62, "Wi-Fi", b, wifi_count() && !air && sys_prefs.wifi_on, H_WIFI, 0);
     ksnprintf(b, sizeof b, "%s", bt_count() ? (air ? "Off (Airplane)" : sys_prefs.bt_on ? "On" : "Off") : "No adapter");
     tile(x2, y, cw, 62, "Bluetooth", b, bt_count() && !air && sys_prefs.bt_on, H_BT, 1);

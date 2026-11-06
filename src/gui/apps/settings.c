@@ -311,9 +311,9 @@ static void settings_draw(struct gui_window *w)
         } else {
             char hw[4][40];
             int nh = wifi_detect_hardware(hw, 4);
-            note(s, 258, "No Wi-Fi driver in MyOS (radios need vendor firmware).");
+            note(s, 258, nh ? "Wi-Fi hardware found, but MyOS has no driver for it yet." : "No Wi-Fi hardware found.");
             for (int i = 0; i < nh; i++) {
-                ksnprintf(line, sizeof line, "Found radio: %s", hw[i]);
+                ksnprintf(line, sizeof line, "Found: %s", hw[i]);
                 gfx_text(s, X0, 276 + i * 16, line, gui_th->text, GFX_TRANSPARENT, 1);
             }
             if (!nh)

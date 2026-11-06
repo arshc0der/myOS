@@ -83,6 +83,8 @@ int  wifi_count(void);
 struct wifi_adapter *wifi_get(int i);
 /* Wi-Fi radios found on the PCI bus (no driver): fills `names`, returns count */
 int  wifi_detect_hardware(char names[][40], int max);
+int  wifi_hw_count(void);                  /* built-in (PCI) and USB Wi-Fi radios found; cached */
+const char *wifi_hw_name(int i);
 
 /* ---- Bluetooth ---- */
 struct bt_device { char name[32]; uint8_t addr[6]; bool paired, connected; };

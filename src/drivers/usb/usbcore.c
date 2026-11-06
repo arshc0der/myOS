@@ -606,6 +606,30 @@ bool usb_find_class(uint8_t cls, int n, uint16_t *vid, uint16_t *pid)
     return false;
 }
 
+bool usb_find_unclaimed(int n, uint16_t *vid, uint16_t *pid, uint8_t *cls)
+{
+    int cnt = 0;
+
+    for (int i = 0; i < USB_MAX_DEVS; i++) {
+        const struct usb_dev *d = &devs[i];
+        if (!d->used || d->is_hub || d->cls == 0xE0 || d->cls == 9)
+            continue;
+        bool claimed = false;
+        for (int e = 0; e < USB_MAX_EPS; e++)
+            if (d->ep[e].used)
+                claimed = true;
+        if (claimed)
+            continue;
+        if (cnt++ == n) {
+            *vid = d->vid;
+            *pid = d->pid;
+            *cls = d->cls;
+            return true;
+        }
+    }
+    return false;
+}
+
 int usb_describe(int index, char *buf, size_t n)
 {
     int cnt = 0;

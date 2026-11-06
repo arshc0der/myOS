@@ -21,7 +21,7 @@
 
 #define USB_MAX_HC    12
 #define USB_MAX_DEVS  24
-#define USB_MAX_EPS   3
+#define USB_MAX_EPS   8       /* composite mice / receivers expose up to 4-5 HID interfaces */
 #define USB_MAX_HUB_PORTS 16
 
 struct usb_hc;
@@ -112,4 +112,6 @@ volatile uint8_t *usb_map_bar0(const struct pci_device *pd);
 bool btusb_attach(struct usb_dev *d, int total);       /* Bluetooth dongles */
 void btusb_event(const uint8_t *data, int len);
 bool usb_find_class(uint8_t cls, int n, uint16_t *vid, uint16_t *pid);
+/* n-th attached USB device that no driver claimed (not a keyboard/mouse/hub/Bluetooth): ids and class */
+bool usb_find_unclaimed(int n, uint16_t *vid, uint16_t *pid, uint8_t *cls);
 #endif
